@@ -48,6 +48,10 @@ FIELD_SPECS = {
     "CPcart, ₽": {"type": "currency", "source": "calculated"},
     "CPO, ₽": {"type": "currency", "source": "calculated"},
     "Дата отчета": {"type": "date", "source": "calculated"},
+    "Доля поиска, %": {"type": "percent", "source": "calculated"},
+    "CR в корзину, %": {"type": "percent", "source": "calculated"},
+    "CR корзина -> заказ, %": {"type": "percent", "source": "calculated"},
+    "CTR, %": {"type": "percent", "source": "calculated"},
 }
 
 
@@ -73,6 +77,10 @@ PERCENT_COLUMNS = {
     "Доля оборота в акциях, %",
     "Доля рекламных расходов, %",
     "СПП, %",
+    "Доля поиска, %",
+    "CR в корзину, %",
+    "CR корзина -> заказ, %",
+    "CTR, %",
 }
 
 DATE_COLUMNS = {
@@ -218,6 +226,38 @@ def recompute_derived_metrics(df: pd.DataFrame, spp_percent: float = 51.0) -> pd
     if "Рекламные расходы, сумма" in df.columns and "Заказано, штуки" in df.columns:
         df["CPO, ₽"] = safe_divide(df["Рекламные расходы, сумма"], df["Заказано, штуки"])
 
+    # =========================
+    # ВОРОНКА И ТРАФИК
+    # =========================
+
+    # Доля поиска
+    if "Просмотры в поиске и каталоге" in df.columns and "Показы всего" in df.columns:
+        df["Доля поиска, %"] = safe_divide(
+            df["Просмотры в поиске и каталоге"],
+            df["Показы всего"]
+        ) * 100
+
+    # CTR (показы -> карточка)
+    if "Просмотры карточки" in df.columns and "Показы всего" in df.columns:
+        df["CTR, %"] = safe_divide(
+            df["Просмотры карточки"],
+            df["Показы всего"]
+        ) * 100
+
+    # CR в корзину
+    if "Количество корзин, шт" in df.columns and "Просмотры карточки" in df.columns:
+        df["CR в корзину, %"] = safe_divide(
+            df["Количество корзин, шт"],
+            df["Просмотры карточки"]
+        ) * 100
+
+    # CR корзина -> заказ
+    if "Заказано, штуки" in df.columns and "Количество корзин, шт" in df.columns:
+        df["CR корзина -> заказ, %"] = safe_divide(
+            df["Заказано, штуки"],
+            df["Количество корзин, шт"]
+        ) * 100
+        
     return df
 
 
