@@ -222,3 +222,97 @@ def get_numeric_columns(df: pd.DataFrame):
         if pd.api.types.is_numeric_dtype(df[col]):
             numeric_cols.append(col)
     return numeric_cols
+
+def aggregate_for_analysis(df: pd.DataFrame, analysis_level: str) -> pd.DataFrame:
+    """
+    Агрегация данных под график:
+    - Товар: без агрегации
+    - Бренд: группировка по бренду
+    - Продавец: группировка по продавцу
+    """
+
+    if analysis_level == "Товар":
+        result = df.copy()
+        result["Группа анализа"] = result["Название товара"] if "Название товара" in result.columns else result.index.astype(str)
+        return result
+
+    group_col = None
+    if analysis_level == "Бренд":
+        group_col = "Бренд"
+    elif analysis_level == "Продавец":
+        group_col = "Продавец"
+
+    if group_col is None or group_col not in df.columns:
+        return df.copy()
+
+    sum_cols = [
+        "Заказано на сумму, ₽",
+        "Заказано, штуки",
+        "Упущенные продажи, ₽",
+        "Среднесуточные продажи, ₽",
+        "Среднесуточные продажи, штуки",
+        "Остаток на конец периода, штуки",
+        "Показы всего",
+        "Просмотры в поиске и каталоге",
+        "Просмотры карточки",
+        "Заказы до СПП, ₽",
+        "Рекламные расходы, сумма",
+    ]
+
+    mean_cols = [
+        "Динамика оборота, %",
+        "Средняя цена, ₽",
+        "Минимальная цена, ₽",
+        "Доля выкупа, %",
+        "Дней без остатка",
+        "Ср. время доставки до покупателя, часы",
+        "Объем товара, л",
+        "Конверсия из показа в заказ, %",
+        "В корзину из поиска и каталога, %",
+        "В корзину из карточки, %",
+        "Скидка за счет акций",
+        "Доля оборота в акциях, %",
+        "Дней в акциях",
+        "Дней с продвижением",
+        "Доля рекламных расходов, %",
+        "Возраст карточки, мес",
+        "СПП, %",
+    ]
+
+    agg_dict = {}
+
+    for col in sum_cols:
+        if col in df.columns:
+            agg_dict[col] = "sum"
+
+    for col in mean_cols:
+        if col in df.columns:
+            agg_dict[col] = "mean"
+
+    grouped = (
+        df.groupby(group_col, dropna=False)
+        .agg(agg_dict)
+        .reset_index()
+    )
+
+    grouped["Количество товаров"] = df.groupby(group_col, dropna=False).size().values
+    grouped["Группа анализа"] = grouped[group_col]
+
+    if analysis_level == "Бренд" and "Продавец" in df.columns:
+        seller_counts = df.groupby(group_col, dropna=False)["Продавец"].nunique().reset_index(name="Количество продавцов")
+        grouped = grouped.merge(seller_counts, on=group_col, how="left")
+
+    if analysis_level == "Продавец" and "Бренд" in df.columns:
+        brand_counts = df.groupby(group_col, dropna=False)["Бренд"].nunique().reset_index(name="Количество брендов")
+        grouped = grouped.merge(brand_counts, on=group_col, how="left")
+
+    if "Заказано на сумму, ₽" in grouped.columns and "Количество товаров" in grouped.columns:
+        grouped["Заказано на сумму на 1 товар, ₽"] = grouped["Заказано на сумму, ₽"] / grouped["Количество товаров"]
+
+    if "Показы всего" in grouped.columns and "Количество товаров" in grouped.columns:
+        grouped["Показы на 1 товар"] = grouped["Показы всего"] / grouped["Количество товаров"]
+
+    if "Заказано, штуки" in grouped.columns and "Количество товаров" in grouped.columns:
+        grouped["Заказано, штуки на 1 товар"] = grouped["Заказано, штуки"] / grouped["Количество товаров"]
+
+    return grouped
