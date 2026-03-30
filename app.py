@@ -10,6 +10,7 @@ from metrics_config import (
     aggregate_for_analysis,
     resolve_aggregation_method,
     get_pandas_agg_func,
+    recompute_derived_metrics,
 )
 
 st.set_page_config(page_title="Ozon Analytics", layout="wide")
@@ -169,8 +170,8 @@ def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str, aggreg
 
     if analysis_level == "Вся выборка":
         ts = (
-            df.groupby("Дата отчета", dropna=False)[metric]
-            .agg(agg_func)
+            df.groupby("Дата отчета", dropna=False)
+            .agg({metric: agg_func})
             .reset_index()
             .sort_values("Дата отчета")
         )
@@ -191,11 +192,12 @@ def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str, aggreg
         return pd.DataFrame()
 
     ts = (
-        df.groupby(["Дата отчета", group_col], dropna=False)[metric]
-        .agg(agg_func)
+        df.groupby(["Дата отчета", group_col], dropna=False)
+        .agg({metric: agg_func})
         .reset_index()
         .sort_values("Дата отчета")
     )
+
     ts["Группа анализа"] = ts[group_col]
     ts["Режим агрегации"] = actual_mode
     return ts
@@ -248,7 +250,7 @@ if uploaded_files:
             key="bubble_analysis_level",
         )
 
-        df_chart_base = aggregate_for_analysis(bubble_filtered_df, analysis_level)
+        df_chart_base = aggregate_for_analysis(bubble_filtered_df, analysis_level, spp_percent=51.0)
         numeric_columns = get_numeric_columns(df_chart_base)
 
         if len(numeric_columns) < 3:
@@ -369,10 +371,16 @@ if uploaded_files:
                     "Средняя цена, ₽",
                     "Показы всего",
                     "Просмотры карточки",
+                    "Количество корзин, шт",
                     "Возраст карточки, мес",
                     "Заказано на сумму на 1 товар, ₽",
                     "Показы на 1 товар",
                     "Заказано, штуки на 1 товар",
+                    "Количество корзин на 1 товар",
+                    "CPM, ₽",
+                    "CPC, ₽",
+                    "CPcart, ₽",
+                    "CPO, ₽",
                 ]:
                     if col in chart_df.columns:
                         hover_fields.append(col)
@@ -423,6 +431,7 @@ if uploaded_files:
         time_filtered_df = apply_common_filters(df, prefix="timeseries")
 
         ts_numeric_columns = get_numeric_columns(time_filtered_df)
+
         if len(ts_numeric_columns) == 0:
             st.warning("Нет числовых метрик для построения временных рядов.")
         else:
@@ -533,7 +542,9 @@ if uploaded_files:
                 ts_part = ts_part.copy()
                 ts_part["Метрика"] = metric_name
                 ts_part["Значение"] = ts_part[metric_name]
-                all_ts_parts.append(ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение", "Режим агрегации"]])
+                all_ts_parts.append(
+                    ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение", "Режим агрегации"]]
+                )
 
             if not all_ts_parts:
                 st.warning("Недостаточно данных для построения временного ряда.")
