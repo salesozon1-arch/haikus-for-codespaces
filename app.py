@@ -8,6 +8,8 @@ from metrics_config import (
     extract_report_date,
     get_numeric_columns,
     aggregate_for_analysis,
+    resolve_aggregation_method,
+    get_pandas_agg_func,
 )
 
 st.set_page_config(page_title="Ozon Analytics", layout="wide")
@@ -158,18 +160,22 @@ def apply_common_filters(df: pd.DataFrame, prefix: str):
     return filtered_df
 
 
-def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str):
+def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str, aggregation_mode: str):
     if "Дата отчета" not in df.columns:
         return pd.DataFrame()
+
+    actual_mode = resolve_aggregation_method(metric, aggregation_mode)
+    agg_func = get_pandas_agg_func(actual_mode)
 
     if analysis_level == "Вся выборка":
         ts = (
             df.groupby("Дата отчета", dropna=False)[metric]
-            .sum()
+            .agg(agg_func)
             .reset_index()
             .sort_values("Дата отчета")
         )
         ts["Группа анализа"] = "Вся выборка"
+        ts["Режим агрегации"] = actual_mode
         return ts
 
     if analysis_level == "Товар":
@@ -186,11 +192,12 @@ def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str):
 
     ts = (
         df.groupby(["Дата отчета", group_col], dropna=False)[metric]
-        .sum()
+        .agg(agg_func)
         .reset_index()
         .sort_values("Дата отчета")
     )
     ts["Группа анализа"] = ts[group_col]
+    ts["Режим агрегации"] = actual_mode
     return ts
 
 
@@ -415,78 +422,170 @@ if uploaded_files:
 
         time_filtered_df = apply_common_filters(df, prefix="timeseries")
 
-        ts_col1, ts_col2, ts_col3 = st.columns(3)
-
-        with ts_col1:
-            ts_analysis_level = st.selectbox(
-                "Уровень агрегации",
-                options=["Вся выборка", "Бренд", "Продавец", "Товар"],
-                index=0,
-                key="ts_analysis_level",
-            )
-
         ts_numeric_columns = get_numeric_columns(time_filtered_df)
-        default_ts_metric = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ts_numeric_columns else ts_numeric_columns[0]
-
-        with ts_col2:
-            ts_metric = st.selectbox(
-                "Метрика",
-                options=ts_numeric_columns,
-                index=ts_numeric_columns.index(default_ts_metric) if default_ts_metric in ts_numeric_columns else 0,
-                key="ts_metric",
-            )
-
-        with ts_col3:
-            ts_top_n = st.selectbox(
-                "Количество линий",
-                options=[1, 3, 5, 10],
-                index=1,
-                key="ts_top_n",
-            )
-
-        ts_df = build_time_series(time_filtered_df, ts_analysis_level, ts_metric)
-
-        if ts_df.empty or ts_metric not in ts_df.columns:
-            st.warning("Недостаточно данных для построения временного ряда.")
+        if len(ts_numeric_columns) == 0:
+            st.warning("Нет числовых метрик для построения временных рядов.")
         else:
-            if ts_analysis_level == "Вся выборка":
-                fig_ts = px.line(
-                    ts_df.sort_values("Дата отчета"),
-                    x="Дата отчета",
-                    y=ts_metric,
-                    markers=True,
+            ts_col1, ts_col2, ts_col3, ts_col4, ts_col5 = st.columns(5)
+
+            with ts_col1:
+                ts_analysis_level = st.selectbox(
+                    "Уровень агрегации",
+                    options=["Вся выборка", "Бренд", "Продавец", "Товар"],
+                    index=0,
+                    key="ts_analysis_level",
                 )
+
+            with ts_col2:
+                metrics_count = st.selectbox(
+                    "Количество метрик",
+                    options=[1, 2, 3],
+                    index=0,
+                    key="ts_metrics_count",
+                )
+
+            with ts_col3:
+                ts_aggregation_mode = st.selectbox(
+                    "Режим агрегации",
+                    options=["Сумма", "Среднее", "Медиана"],
+                    index=0,
+                    key="ts_aggregation_mode",
+                )
+
+            default_ts_metric_1 = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ts_numeric_columns else ts_numeric_columns[0]
+            default_ts_metric_2 = "Заказано, штуки" if "Заказано, штуки" in ts_numeric_columns else ts_numeric_columns[min(1, len(ts_numeric_columns) - 1)]
+            default_ts_metric_3 = "Показы всего" if "Показы всего" in ts_numeric_columns else ts_numeric_columns[min(2, len(ts_numeric_columns) - 1)]
+
+            with ts_col4:
+                ts_metric_1 = st.selectbox(
+                    "Метрика 1",
+                    options=ts_numeric_columns,
+                    index=ts_numeric_columns.index(default_ts_metric_1) if default_ts_metric_1 in ts_numeric_columns else 0,
+                    key="ts_metric_1",
+                )
+
+            with ts_col5:
+                ts_top_n = st.selectbox(
+                    "Количество линий",
+                    options=[1, 3, 5, 10],
+                    index=1,
+                    key="ts_top_n",
+                )
+
+            extra_metric_cols = st.columns(2)
+            selected_metrics = [ts_metric_1]
+
+            with extra_metric_cols[0]:
+                if metrics_count >= 2:
+                    remaining_for_2 = [m for m in ts_numeric_columns if m != ts_metric_1]
+                    default_index_2 = 0
+                    if default_ts_metric_2 in remaining_for_2:
+                        default_index_2 = remaining_for_2.index(default_ts_metric_2)
+
+                    ts_metric_2 = st.selectbox(
+                        "Метрика 2",
+                        options=remaining_for_2,
+                        index=default_index_2,
+                        key="ts_metric_2",
+                    )
+                    selected_metrics.append(ts_metric_2)
+
+            with extra_metric_cols[1]:
+                if metrics_count >= 3:
+                    remaining_for_3 = [m for m in ts_numeric_columns if m not in selected_metrics]
+                    default_index_3 = 0
+                    if default_ts_metric_3 in remaining_for_3:
+                        default_index_3 = remaining_for_3.index(default_ts_metric_3)
+
+                    ts_metric_3 = st.selectbox(
+                        "Метрика 3",
+                        options=remaining_for_3,
+                        index=default_index_3,
+                        key="ts_metric_3",
+                    )
+                    selected_metrics.append(ts_metric_3)
+
+            adjusted_metrics = []
+            for metric_name in selected_metrics:
+                actual_mode = resolve_aggregation_method(metric_name, ts_aggregation_mode)
+                if actual_mode != ts_aggregation_mode:
+                    adjusted_metrics.append(metric_name)
+
+            if adjusted_metrics:
+                st.info(
+                    "Для процентных метрик режим 'Сумма' автоматически заменен на 'Среднее': "
+                    + ", ".join(adjusted_metrics)
+                )
+
+            all_ts_parts = []
+
+            for metric_name in selected_metrics:
+                ts_part = build_time_series(
+                    time_filtered_df,
+                    ts_analysis_level,
+                    metric_name,
+                    ts_aggregation_mode,
+                )
+
+                if ts_part.empty or metric_name not in ts_part.columns:
+                    continue
+
+                ts_part = ts_part.copy()
+                ts_part["Метрика"] = metric_name
+                ts_part["Значение"] = ts_part[metric_name]
+                all_ts_parts.append(ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение", "Режим агрегации"]])
+
+            if not all_ts_parts:
+                st.warning("Недостаточно данных для построения временного ряда.")
             else:
-                total_by_group = (
-                    ts_df.groupby("Группа анализа", dropna=False)[ts_metric]
-                    .sum()
-                    .reset_index()
-                    .sort_values(ts_metric, ascending=False)
-                    .head(ts_top_n)
+                ts_plot_df = pd.concat(all_ts_parts, ignore_index=True)
+
+                if ts_analysis_level == "Вся выборка":
+                    fig_ts = px.line(
+                        ts_plot_df.sort_values("Дата отчета"),
+                        x="Дата отчета",
+                        y="Значение",
+                        color="Метрика",
+                        markers=True,
+                        hover_data=["Метрика", "Режим агрегации"],
+                    )
+                else:
+                    total_by_group = (
+                        ts_plot_df.groupby("Группа анализа", dropna=False)["Значение"]
+                        .sum()
+                        .reset_index()
+                        .sort_values("Значение", ascending=False)
+                        .head(ts_top_n)
+                    )
+
+                    keep_groups = total_by_group["Группа анализа"].tolist()
+                    ts_plot_df = ts_plot_df[ts_plot_df["Группа анализа"].isin(keep_groups)].copy()
+
+                    ts_plot_df["Линия"] = (
+                        ts_plot_df["Группа анализа"].astype(str)
+                        + " | "
+                        + ts_plot_df["Метрика"].astype(str)
+                    )
+
+                    fig_ts = px.line(
+                        ts_plot_df.sort_values("Дата отчета"),
+                        x="Дата отчета",
+                        y="Значение",
+                        color="Линия",
+                        markers=True,
+                        hover_data=["Группа анализа", "Метрика", "Режим агрегации"],
+                    )
+
+                fig_ts.update_layout(
+                    height=650,
+                    xaxis_title="Дата отчета",
+                    yaxis_title="Значение",
                 )
 
-                keep_groups = total_by_group["Группа анализа"].tolist()
-                ts_df = ts_df[ts_df["Группа анализа"].isin(keep_groups)].copy()
+                st.plotly_chart(fig_ts, use_container_width=True)
 
-                fig_ts = px.line(
-                    ts_df.sort_values("Дата отчета"),
-                    x="Дата отчета",
-                    y=ts_metric,
-                    color="Группа анализа",
-                    markers=True,
-                    hover_data=["Группа анализа"],
-                )
-
-            fig_ts.update_layout(
-                height=650,
-                xaxis_title="Дата отчета",
-                yaxis_title=ts_metric,
-            )
-
-            st.plotly_chart(fig_ts, use_container_width=True)
-
-        st.subheader("Предпросмотр данных временного ряда")
-        st.dataframe(ts_df.head(100), use_container_width=True)
+                st.subheader("Предпросмотр данных временного ряда")
+                st.dataframe(ts_plot_df.head(100), use_container_width=True)
 
     except Exception as e:
         st.error(f"Ошибка загрузки файла: {e}")

@@ -316,3 +316,150 @@ def aggregate_for_analysis(df: pd.DataFrame, analysis_level: str) -> pd.DataFram
         grouped["Заказано, штуки на 1 товар"] = grouped["Заказано, штуки"] / grouped["Количество товаров"]
 
     return grouped
+
+        # =========================
+        # ВРЕМЕННЫЕ РЯДЫ
+        # =========================
+        st.header("Динамика по времени")
+
+        time_filtered_df = apply_common_filters(df, prefix="timeseries")
+
+        ts_numeric_columns = get_numeric_columns(time_filtered_df)
+        if len(ts_numeric_columns) == 0:
+            st.warning("Нет числовых метрик для построения временных рядов.")
+        else:
+            ts_col1, ts_col2, ts_col3, ts_col4 = st.columns(4)
+
+            with ts_col1:
+                ts_analysis_level = st.selectbox(
+                    "Уровень агрегации",
+                    options=["Вся выборка", "Бренд", "Продавец", "Товар"],
+                    index=0,
+                    key="ts_analysis_level",
+                )
+
+            with ts_col2:
+                metrics_count = st.selectbox(
+                    "Количество метрик",
+                    options=[1, 2, 3],
+                    index=0,
+                    key="ts_metrics_count",
+                )
+
+            default_ts_metric_1 = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ts_numeric_columns else ts_numeric_columns[0]
+            default_ts_metric_2 = "Заказано, штуки" if "Заказано, штуки" in ts_numeric_columns else ts_numeric_columns[min(1, len(ts_numeric_columns) - 1)]
+            default_ts_metric_3 = "Показы всего" if "Показы всего" in ts_numeric_columns else ts_numeric_columns[min(2, len(ts_numeric_columns) - 1)]
+
+            with ts_col3:
+                ts_metric_1 = st.selectbox(
+                    "Метрика 1",
+                    options=ts_numeric_columns,
+                    index=ts_numeric_columns.index(default_ts_metric_1) if default_ts_metric_1 in ts_numeric_columns else 0,
+                    key="ts_metric_1",
+                )
+
+            with ts_col4:
+                ts_top_n = st.selectbox(
+                    "Количество линий",
+                    options=[1, 3, 5, 10],
+                    index=1,
+                    key="ts_top_n",
+                )
+
+            extra_metric_cols = st.columns(2)
+
+            selected_metrics = [ts_metric_1]
+
+            with extra_metric_cols[0]:
+                if metrics_count >= 2:
+                    remaining_for_2 = [m for m in ts_numeric_columns if m != ts_metric_1]
+                    default_index_2 = 0
+                    if default_ts_metric_2 in remaining_for_2:
+                        default_index_2 = remaining_for_2.index(default_ts_metric_2)
+
+                    ts_metric_2 = st.selectbox(
+                        "Метрика 2",
+                        options=remaining_for_2,
+                        index=default_index_2,
+                        key="ts_metric_2",
+                    )
+                    selected_metrics.append(ts_metric_2)
+
+            with extra_metric_cols[1]:
+                if metrics_count >= 3:
+                    remaining_for_3 = [m for m in ts_numeric_columns if m not in selected_metrics]
+                    default_index_3 = 0
+                    if default_ts_metric_3 in remaining_for_3:
+                        default_index_3 = remaining_for_3.index(default_ts_metric_3)
+
+                    ts_metric_3 = st.selectbox(
+                        "Метрика 3",
+                        options=remaining_for_3,
+                        index=default_index_3,
+                        key="ts_metric_3",
+                    )
+                    selected_metrics.append(ts_metric_3)
+
+            all_ts_parts = []
+
+            for metric_name in selected_metrics:
+                ts_part = build_time_series(time_filtered_df, ts_analysis_level, metric_name)
+
+                if ts_part.empty or metric_name not in ts_part.columns:
+                    continue
+
+                ts_part = ts_part.copy()
+                ts_part["Метрика"] = metric_name
+                ts_part["Значение"] = ts_part[metric_name]
+                all_ts_parts.append(ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение"]])
+
+            if not all_ts_parts:
+                st.warning("Недостаточно данных для построения временного ряда.")
+            else:
+                ts_plot_df = pd.concat(all_ts_parts, ignore_index=True)
+
+                if ts_analysis_level == "Вся выборка":
+                    fig_ts = px.line(
+                        ts_plot_df.sort_values("Дата отчета"),
+                        x="Дата отчета",
+                        y="Значение",
+                        color="Метрика",
+                        markers=True,
+                    )
+                else:
+                    total_by_group = (
+                        ts_plot_df.groupby("Группа анализа", dropna=False)["Значение"]
+                        .sum()
+                        .reset_index()
+                        .sort_values("Значение", ascending=False)
+                        .head(ts_top_n)
+                    )
+
+                    keep_groups = total_by_group["Группа анализа"].tolist()
+                    ts_plot_df = ts_plot_df[ts_plot_df["Группа анализа"].isin(keep_groups)].copy()
+
+                    ts_plot_df["Линия"] = (
+                        ts_plot_df["Группа анализа"].astype(str)
+                        + " | "
+                        + ts_plot_df["Метрика"].astype(str)
+                    )
+
+                    fig_ts = px.line(
+                        ts_plot_df.sort_values("Дата отчета"),
+                        x="Дата отчета",
+                        y="Значение",
+                        color="Линия",
+                        markers=True,
+                        hover_data=["Группа анализа", "Метрика"],
+                    )
+
+                fig_ts.update_layout(
+                    height=650,
+                    xaxis_title="Дата отчета",
+                    yaxis_title="Значение",
+                )
+
+                st.plotly_chart(fig_ts, use_container_width=True)
+
+                st.subheader("Предпросмотр данных временного ряда")
+                st.dataframe(ts_plot_df.head(100), use_container_width=True)
