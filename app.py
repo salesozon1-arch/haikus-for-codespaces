@@ -21,7 +21,7 @@ def find_header_row(df_raw: pd.DataFrame) -> int:
     raise ValueError("Не удалось найти строку заголовков. Проверь формат файла.")
 
 
-def load_ozon_report(uploaded_file):
+def load_single_ozon_report(uploaded_file):
     file_name = uploaded_file.name.lower()
 
     if file_name.endswith(".csv"):
@@ -29,7 +29,7 @@ def load_ozon_report(uploaded_file):
     elif file_name.endswith(".xlsx"):
         df_raw = pd.read_excel(uploaded_file, header=None)
     else:
-        raise ValueError("Поддерживаются только CSV и XLSX")
+        raise ValueError(f"Файл {uploaded_file.name}: поддерживаются только CSV и XLSX")
 
     report_date = extract_report_date(df_raw)
     header_row = find_header_row(df_raw)
@@ -48,246 +48,445 @@ def load_ozon_report(uploaded_file):
         df = df[df["Название товара"].astype(str).str.strip() != "Название товара"]
 
     df = df.reset_index(drop=True)
+    df["Имя файла"] = uploaded_file.name
 
     return df, report_date
 
 
-st.title("Ozon Analytics")
+def load_multiple_ozon_reports(uploaded_files):
+    all_data = []
 
-uploaded_file = st.file_uploader("Загрузи отчет Ozon", type=["csv", "xlsx"])
-
-if uploaded_file is not None:
-    try:
-        df, report_date = load_ozon_report(uploaded_file)
+    for uploaded_file in uploaded_files:
+        df, report_date = load_single_ozon_report(uploaded_file)
         df = prepare_base_columns(df)
         df = add_calculated_columns(df, report_date=report_date, spp_percent=51.0)
+        all_data.append(df)
 
-        st.success(f"Файл загружен. Строк: {len(df)}, колонок: {len(df.columns)}")
+    if not all_data:
+        return pd.DataFrame()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Дата отчета:**", report_date)
-        with col2:
-            st.write("**Числовых полей в исходных данных:**", len(get_numeric_columns(df)))
+    combined_df = pd.concat(all_data, ignore_index=True)
+    return combined_df
+
+
+def apply_common_filters(df: pd.DataFrame, prefix: str):
+    filtered_df = df.copy()
+
+    st.subheader("Фильтры")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        if "Средняя цена, ₽" in filtered_df.columns and filtered_df["Средняя цена, ₽"].notna().sum() > 0:
+            min_price = float(filtered_df["Средняя цена, ₽"].min())
+            max_price = float(filtered_df["Средняя цена, ₽"].max())
+
+            if min_price == max_price:
+                st.write(f"**Диапазон цены:** {min_price:.2f}")
+            else:
+                price_range = st.slider(
+                    "Диапазон средней цены, ₽",
+                    min_value=min_price,
+                    max_value=max_price,
+                    value=(min_price, max_price),
+                    key=f"{prefix}_price_range",
+                )
+                filtered_df = filtered_df[
+                    (filtered_df["Средняя цена, ₽"] >= price_range[0]) &
+                    (filtered_df["Средняя цена, ₽"] <= price_range[1])
+                ]
+
+    with col2:
+        if "Возраст карточки, мес" in filtered_df.columns and filtered_df["Возраст карточки, мес"].notna().sum() > 0:
+            min_age = float(filtered_df["Возраст карточки, мес"].min())
+            max_age = float(filtered_df["Возраст карточки, мес"].max())
+
+            if min_age == max_age:
+                st.write(f"**Возраст карточки:** {min_age:.1f}")
+            else:
+                age_range = st.slider(
+                    "Возраст карточки, мес",
+                    min_value=min_age,
+                    max_value=max_age,
+                    value=(min_age, max_age),
+                    key=f"{prefix}_age_range",
+                )
+                filtered_df = filtered_df[
+                    (filtered_df["Возраст карточки, мес"] >= age_range[0]) &
+                    (filtered_df["Возраст карточки, мес"] <= age_range[1])
+                ]
+
+    with col3:
+        if "Схема работы" in filtered_df.columns:
+            scheme_options = sorted(
+                [x for x in filtered_df["Схема работы"].dropna().unique().tolist() if str(x).strip() != ""]
+            )
+            selected_schemes = st.multiselect(
+                "Схема работы",
+                options=scheme_options,
+                key=f"{prefix}_schemes",
+            )
+            if selected_schemes:
+                filtered_df = filtered_df[filtered_df["Схема работы"].isin(selected_schemes)]
+
+    with col4:
+        if "Бренд" in filtered_df.columns:
+            brand_options = sorted(
+                [x for x in filtered_df["Бренд"].dropna().unique().tolist() if str(x).strip() != ""]
+            )
+            selected_brands = st.multiselect(
+                "Бренд",
+                options=brand_options,
+                key=f"{prefix}_brands",
+            )
+            if selected_brands:
+                filtered_df = filtered_df[filtered_df["Бренд"].isin(selected_brands)]
+
+    with col5:
+        if "Продавец" in filtered_df.columns:
+            seller_options = sorted(
+                [x for x in filtered_df["Продавец"].dropna().unique().tolist() if str(x).strip() != ""]
+            )
+            selected_sellers = st.multiselect(
+                "Магазин / продавец",
+                options=seller_options,
+                key=f"{prefix}_sellers",
+            )
+            if selected_sellers:
+                filtered_df = filtered_df[filtered_df["Продавец"].isin(selected_sellers)]
+
+    return filtered_df
+
+
+def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str):
+    if "Дата отчета" not in df.columns:
+        return pd.DataFrame()
+
+    if analysis_level == "Вся выборка":
+        ts = (
+            df.groupby("Дата отчета", dropna=False)[metric]
+            .sum()
+            .reset_index()
+            .sort_values("Дата отчета")
+        )
+        ts["Группа анализа"] = "Вся выборка"
+        return ts
+
+    if analysis_level == "Товар":
+        group_col = "Название товара"
+    elif analysis_level == "Бренд":
+        group_col = "Бренд"
+    elif analysis_level == "Продавец":
+        group_col = "Продавец"
+    else:
+        group_col = None
+
+    if group_col is None or group_col not in df.columns:
+        return pd.DataFrame()
+
+    ts = (
+        df.groupby(["Дата отчета", group_col], dropna=False)[metric]
+        .sum()
+        .reset_index()
+        .sort_values("Дата отчета")
+    )
+    ts["Группа анализа"] = ts[group_col]
+    return ts
+
+
+st.title("Ozon Analytics")
+
+uploaded_files = st.file_uploader(
+    "Загрузи один или несколько отчетов Ozon",
+    type=["csv", "xlsx"],
+    accept_multiple_files=True,
+)
+
+if uploaded_files:
+    try:
+        df = load_multiple_ozon_reports(uploaded_files)
+
+        if df.empty:
+            st.warning("Не удалось загрузить данные.")
+            st.stop()
+
+        date_min = df["Дата отчета"].min() if "Дата отчета" in df.columns else None
+        date_max = df["Дата отчета"].max() if "Дата отчета" in df.columns else None
+
+        st.success(
+            f"Файлы загружены. Строк: {len(df)}, колонок: {len(df.columns)}, отчетов: {len(uploaded_files)}"
+        )
+
+        info_col1, info_col2, info_col3 = st.columns(3)
+        with info_col1:
+            st.write("**Мин. дата отчета:**", date_min)
+        with info_col2:
+            st.write("**Макс. дата отчета:**", date_max)
+        with info_col3:
+            st.write("**Числовых полей:**", len(get_numeric_columns(df)))
+
+        # =========================
+        # ПУЗЫРЬКОВАЯ ДИАГРАММА
+        # =========================
+        st.header("Пузырьковая диаграмма")
+
+        bubble_filtered_df = apply_common_filters(df, prefix="bubble")
 
         st.subheader("Настройки графика")
 
         analysis_level = st.radio(
             "Уровень анализа",
             options=["Товар", "Бренд", "Продавец"],
-            horizontal=True
+            horizontal=True,
+            key="bubble_analysis_level",
         )
 
-        df_filtered = df.copy()
-
-        filter_col1, filter_col2, filter_col3 = st.columns(3)
-
-        with filter_col1:
-            if "Средняя цена, ₽" in df_filtered.columns and df_filtered["Средняя цена, ₽"].notna().sum() > 0:
-                min_price = float(df_filtered["Средняя цена, ₽"].min())
-                max_price = float(df_filtered["Средняя цена, ₽"].max())
-
-                if min_price == max_price:
-                    st.write(f"**Диапазон средней цены, ₽:** {min_price:.2f}")
-                else:
-                    price_range = st.slider(
-                        "Диапазон средней цены, ₽",
-                        min_value=min_price,
-                        max_value=max_price,
-                        value=(min_price, max_price),
-                    )
-                    df_filtered = df_filtered[
-                        (df_filtered["Средняя цена, ₽"] >= price_range[0]) &
-                        (df_filtered["Средняя цена, ₽"] <= price_range[1])
-                    ]
-
-        with filter_col2:
-            if "Схема работы" in df_filtered.columns:
-                scheme_options = sorted(
-                    [x for x in df_filtered["Схема работы"].dropna().unique().tolist() if str(x).strip() != ""]
-                )
-                selected_schemes = st.multiselect("Схема работы", options=scheme_options)
-                if selected_schemes:
-                    df_filtered = df_filtered[df_filtered["Схема работы"].isin(selected_schemes)]
-
-        with filter_col3:
-            if "Возраст карточки, мес" in df_filtered.columns and df_filtered["Возраст карточки, мес"].notna().sum() > 0:
-                min_age = float(df_filtered["Возраст карточки, мес"].min())
-                max_age = float(df_filtered["Возраст карточки, мес"].max())
-
-                if min_age == max_age:
-                    st.write(f"**Возраст карточки, мес:** {min_age:.1f}")
-                else:
-                    age_range = st.slider(
-                        "Возраст карточки, мес",
-                        min_value=min_age,
-                        max_value=max_age,
-                        value=(min_age, max_age),
-                    )
-                    df_filtered = df_filtered[
-                        (df_filtered["Возраст карточки, мес"] >= age_range[0]) &
-                        (df_filtered["Возраст карточки, мес"] <= age_range[1])
-                    ]
-
-        # Агрегация уже после фильтров
-        df_chart_base = aggregate_for_analysis(df_filtered, analysis_level)
+        df_chart_base = aggregate_for_analysis(bubble_filtered_df, analysis_level)
         numeric_columns = get_numeric_columns(df_chart_base)
 
         if len(numeric_columns) < 3:
-            st.warning("Недостаточно числовых полей для построения графика.")
-            st.stop()
-
-        default_x = "Показы всего" if "Показы всего" in numeric_columns else numeric_columns[0]
-        default_y = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in numeric_columns else numeric_columns[min(1, len(numeric_columns) - 1)]
-        default_size = "Заказано, штуки" if "Заказано, штуки" in numeric_columns else numeric_columns[min(2, len(numeric_columns) - 1)]
-
-        parameter_options = ["Без параметра"]
-        for col in [
-            "Бренд",
-            "Продавец",
-            "Категория 1 уровня",
-            "Категория 3 уровня",
-            "Признак товара",
-            "Схема работы",
-            "Группа анализа",
-        ]:
-            if col in df_chart_base.columns and col not in parameter_options:
-                parameter_options.append(col)
-
-        chart_col1, chart_col2, chart_col3, chart_col4 = st.columns(4)
-
-        with chart_col1:
-            x_axis = st.selectbox(
-                "Ось X",
-                options=numeric_columns,
-                index=numeric_columns.index(default_x) if default_x in numeric_columns else 0
-            )
-
-        with chart_col2:
-            y_axis = st.selectbox(
-                "Ось Y",
-                options=numeric_columns,
-                index=numeric_columns.index(default_y) if default_y in numeric_columns else 0
-            )
-
-        with chart_col3:
-            size_axis = st.selectbox(
-                "Размер пузыря",
-                options=numeric_columns,
-                index=numeric_columns.index(default_size) if default_size in numeric_columns else 0
-            )
-
-        with chart_col4:
-            parameter_by = st.selectbox("Параметр", options=parameter_options)
-
-        st.subheader("Ограничение выборки")
-
-        ranking_options = numeric_columns.copy()
-        default_rank = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ranking_options else ranking_options[0]
-
-        rank_col1, rank_col2, rank_col3 = st.columns(3)
-
-        with rank_col1:
-            rank_by = st.selectbox(
-                "Ограничивать по метрике",
-                options=ranking_options,
-                index=ranking_options.index(default_rank) if default_rank in ranking_options else 0
-            )
-
-        with rank_col2:
-            top_n = st.selectbox(
-                "Количество точек",
-                options=[10, 20, 35, 100],
-                index=1
-            )
-
-        with rank_col3:
-            label_options = ["Без подписи"]
-            for col in ["Группа анализа", "Название товара", "Бренд", "Продавец", "Артикул OZON"]:
-                if col in df_chart_base.columns and col not in label_options:
-                    label_options.append(col)
-
-            if (
-                parameter_by != "Без параметра"
-                and parameter_by in df_chart_base.columns
-                and parameter_by not in label_options
-            ):
-                label_options.append(parameter_by)
-
-            point_label = st.selectbox("Подпись точек", options=label_options)
-
-        chart_df = df_chart_base.dropna(subset=[x_axis, y_axis, size_axis]).copy()
-
-        if rank_by in chart_df.columns:
-            chart_df = chart_df.sort_values(rank_by, ascending=False).head(top_n)
-
-        if len(chart_df) == 0:
-            st.warning("После фильтрации не осталось данных для построения графика.")
+            st.warning("Недостаточно числовых полей для построения пузырьковой диаграммы.")
         else:
-            hover_fields = []
+            default_x = "Показы всего" if "Показы всего" in numeric_columns else numeric_columns[0]
+            default_y = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in numeric_columns else numeric_columns[min(1, len(numeric_columns) - 1)]
+            default_size = "Заказано, штуки" if "Заказано, штуки" in numeric_columns else numeric_columns[min(2, len(numeric_columns) - 1)]
+
+            parameter_options = ["Без параметра"]
             for col in [
-                "Группа анализа",
-                "Название товара",
                 "Бренд",
                 "Продавец",
-                "Артикул OZON",
-                "Количество товаров",
-                "Количество продавцов",
-                "Количество брендов",
-                "Заказано на сумму, ₽",
-                "Заказано, штуки",
-                "Средняя цена, ₽",
-                "Показы всего",
-                "Просмотры карточки",
-                "Возраст карточки, мес",
-                "Заказано на сумму на 1 товар, ₽",
-                "Показы на 1 товар",
-                "Заказано, штуки на 1 товар",
+                "Категория 1 уровня",
+                "Категория 3 уровня",
+                "Признак товара",
+                "Схема работы",
+                "Группа анализа",
             ]:
-                if col in chart_df.columns:
-                    hover_fields.append(col)
+                if col in df_chart_base.columns and col not in parameter_options:
+                    parameter_options.append(col)
 
-            color_arg = parameter_by if parameter_by != "Без параметра" else None
+            chart_col1, chart_col2, chart_col3, chart_col4 = st.columns(4)
 
-            text_column = None
-            if point_label != "Без подписи" and point_label in chart_df.columns:
-                text_column = point_label
+            with chart_col1:
+                x_axis = st.selectbox(
+                    "Ось X",
+                    options=numeric_columns,
+                    index=numeric_columns.index(default_x) if default_x in numeric_columns else 0,
+                    key="bubble_x",
+                )
 
-            hover_name_col = None
-            if "Группа анализа" in chart_df.columns:
-                hover_name_col = "Группа анализа"
-            elif "Название товара" in chart_df.columns:
-                hover_name_col = "Название товара"
+            with chart_col2:
+                y_axis = st.selectbox(
+                    "Ось Y",
+                    options=numeric_columns,
+                    index=numeric_columns.index(default_y) if default_y in numeric_columns else 0,
+                    key="bubble_y",
+                )
 
-            fig = px.scatter(
-                chart_df,
-                x=x_axis,
-                y=y_axis,
-                size=size_axis,
-                color=color_arg,
-                text=text_column,
-                hover_name=hover_name_col,
-                hover_data=hover_fields,
-                size_max=60,
-            )
+            with chart_col3:
+                size_axis = st.selectbox(
+                    "Размер пузыря",
+                    options=numeric_columns,
+                    index=numeric_columns.index(default_size) if default_size in numeric_columns else 0,
+                    key="bubble_size",
+                )
 
-            fig.update_traces(
-                textposition="top center",
-                marker=dict(opacity=0.7)
-            )
+            with chart_col4:
+                parameter_by = st.selectbox(
+                    "Параметр",
+                    options=parameter_options,
+                    key="bubble_parameter",
+                )
 
-            fig.update_layout(
-                height=750,
-                xaxis_title=x_axis,
-                yaxis_title=y_axis,
-            )
+            st.subheader("Ограничение выборки")
 
-            st.plotly_chart(fig, use_container_width=True)
+            ranking_options = numeric_columns.copy()
+            default_rank = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ranking_options else ranking_options[0]
 
-            st.caption(f"На графике показано {len(chart_df)} точек")
+            rank_col1, rank_col2, rank_col3 = st.columns(3)
 
-        st.subheader("Предпросмотр данных")
+            with rank_col1:
+                rank_by = st.selectbox(
+                    "Ограничивать по метрике",
+                    options=ranking_options,
+                    index=ranking_options.index(default_rank) if default_rank in ranking_options else 0,
+                    key="bubble_rank_by",
+                )
+
+            with rank_col2:
+                top_n = st.selectbox(
+                    "Количество точек",
+                    options=[10, 20, 35, 100],
+                    index=1,
+                    key="bubble_top_n",
+                )
+
+            with rank_col3:
+                label_options = ["Без подписи"]
+                for col in ["Группа анализа", "Название товара", "Бренд", "Продавец", "Артикул OZON"]:
+                    if col in df_chart_base.columns and col not in label_options:
+                        label_options.append(col)
+
+                if (
+                    parameter_by != "Без параметра"
+                    and parameter_by in df_chart_base.columns
+                    and parameter_by not in label_options
+                ):
+                    label_options.append(parameter_by)
+
+                point_label = st.selectbox(
+                    "Подпись точек",
+                    options=label_options,
+                    key="bubble_point_label",
+                )
+
+            chart_df = df_chart_base.dropna(subset=[x_axis, y_axis, size_axis]).copy()
+
+            if rank_by in chart_df.columns:
+                chart_df = chart_df.sort_values(rank_by, ascending=False).head(top_n)
+
+            if len(chart_df) == 0:
+                st.warning("После фильтрации не осталось данных для построения графика.")
+            else:
+                hover_fields = []
+                for col in [
+                    "Группа анализа",
+                    "Название товара",
+                    "Бренд",
+                    "Продавец",
+                    "Артикул OZON",
+                    "Количество товаров",
+                    "Количество продавцов",
+                    "Количество брендов",
+                    "Заказано на сумму, ₽",
+                    "Заказано, штуки",
+                    "Средняя цена, ₽",
+                    "Показы всего",
+                    "Просмотры карточки",
+                    "Возраст карточки, мес",
+                    "Заказано на сумму на 1 товар, ₽",
+                    "Показы на 1 товар",
+                    "Заказано, штуки на 1 товар",
+                ]:
+                    if col in chart_df.columns:
+                        hover_fields.append(col)
+
+                color_arg = parameter_by if parameter_by != "Без параметра" else None
+                text_column = point_label if point_label != "Без подписи" and point_label in chart_df.columns else None
+
+                hover_name_col = None
+                if "Группа анализа" in chart_df.columns:
+                    hover_name_col = "Группа анализа"
+                elif "Название товара" in chart_df.columns:
+                    hover_name_col = "Название товара"
+
+                fig = px.scatter(
+                    chart_df,
+                    x=x_axis,
+                    y=y_axis,
+                    size=size_axis,
+                    color=color_arg,
+                    text=text_column,
+                    hover_name=hover_name_col,
+                    hover_data=hover_fields,
+                    size_max=60,
+                )
+
+                fig.update_traces(
+                    textposition="top center",
+                    marker=dict(opacity=0.7)
+                )
+
+                fig.update_layout(
+                    height=750,
+                    xaxis_title=x_axis,
+                    yaxis_title=y_axis,
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+                st.caption(f"На графике показано {len(chart_df)} точек")
+
+        st.subheader("Предпросмотр данных для пузырьковой диаграммы")
         st.dataframe(df_chart_base.head(50), use_container_width=True)
+
+        # =========================
+        # ВРЕМЕННЫЕ РЯДЫ
+        # =========================
+        st.header("Динамика по времени")
+
+        time_filtered_df = apply_common_filters(df, prefix="timeseries")
+
+        ts_col1, ts_col2, ts_col3 = st.columns(3)
+
+        with ts_col1:
+            ts_analysis_level = st.selectbox(
+                "Уровень агрегации",
+                options=["Вся выборка", "Бренд", "Продавец", "Товар"],
+                index=0,
+                key="ts_analysis_level",
+            )
+
+        ts_numeric_columns = get_numeric_columns(time_filtered_df)
+        default_ts_metric = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ts_numeric_columns else ts_numeric_columns[0]
+
+        with ts_col2:
+            ts_metric = st.selectbox(
+                "Метрика",
+                options=ts_numeric_columns,
+                index=ts_numeric_columns.index(default_ts_metric) if default_ts_metric in ts_numeric_columns else 0,
+                key="ts_metric",
+            )
+
+        with ts_col3:
+            ts_top_n = st.selectbox(
+                "Количество линий",
+                options=[1, 3, 5, 10],
+                index=1,
+                key="ts_top_n",
+            )
+
+        ts_df = build_time_series(time_filtered_df, ts_analysis_level, ts_metric)
+
+        if ts_df.empty or ts_metric not in ts_df.columns:
+            st.warning("Недостаточно данных для построения временного ряда.")
+        else:
+            if ts_analysis_level == "Вся выборка":
+                fig_ts = px.line(
+                    ts_df.sort_values("Дата отчета"),
+                    x="Дата отчета",
+                    y=ts_metric,
+                    markers=True,
+                )
+            else:
+                total_by_group = (
+                    ts_df.groupby("Группа анализа", dropna=False)[ts_metric]
+                    .sum()
+                    .reset_index()
+                    .sort_values(ts_metric, ascending=False)
+                    .head(ts_top_n)
+                )
+
+                keep_groups = total_by_group["Группа анализа"].tolist()
+                ts_df = ts_df[ts_df["Группа анализа"].isin(keep_groups)].copy()
+
+                fig_ts = px.line(
+                    ts_df.sort_values("Дата отчета"),
+                    x="Дата отчета",
+                    y=ts_metric,
+                    color="Группа анализа",
+                    markers=True,
+                    hover_data=["Группа анализа"],
+                )
+
+            fig_ts.update_layout(
+                height=650,
+                xaxis_title="Дата отчета",
+                yaxis_title=ts_metric,
+            )
+
+            st.plotly_chart(fig_ts, use_container_width=True)
+
+        st.subheader("Предпросмотр данных временного ряда")
+        st.dataframe(ts_df.head(100), use_container_width=True)
 
     except Exception as e:
         st.error(f"Ошибка загрузки файла: {e}")
