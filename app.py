@@ -77,6 +77,18 @@ if uploaded_file is not None:
         default_y = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in numeric_columns else numeric_columns[1]
         default_size = "Заказано, штуки" if "Заказано, штуки" in numeric_columns else numeric_columns[2]
 
+        parameter_options = ["Без параметра"]
+        for col in [
+            "Бренд",
+            "Продавец",
+            "Категория 1 уровня",
+            "Категория 3 уровня",
+            "Признак товара",
+            "Схема работы",
+        ]:
+            if col in df.columns:
+                parameter_options.append(col)
+
         chart_col1, chart_col2, chart_col3, chart_col4 = st.columns(4)
 
         with chart_col1:
@@ -100,43 +112,88 @@ if uploaded_file is not None:
                 index=numeric_columns.index(default_size) if default_size in numeric_columns else 2
             )
 
-        color_options = ["Без цвета"]
-        for col in ["Бренд", "Продавец", "Категория 1 уровня", "Категория 3 уровня", "Признак товара", "Схема работы"]:
-            if col in df.columns:
-                color_options.append(col)
-
         with chart_col4:
-            color_by = st.selectbox("Цвет", options=color_options)
+            parameter_by = st.selectbox("Параметр", options=parameter_options)
 
         st.subheader("Фильтры")
 
+        df_filtered = df.copy()
         filter_col1, filter_col2, filter_col3 = st.columns(3)
 
-        df_filtered = df.copy()
-
         with filter_col1:
-            if "Бренд" in df.columns:
-                brand_options = sorted([x for x in df["Бренд"].dropna().unique().tolist() if str(x).strip() != ""])
-                selected_brands = st.multiselect("Бренд", options=brand_options)
-                if selected_brands:
-                    df_filtered = df_filtered[df_filtered["Бренд"].isin(selected_brands)]
-
-        with filter_col2:
-            if "Продавец" in df.columns:
-                seller_options = sorted([x for x in df["Продавец"].dropna().unique().tolist() if str(x).strip() != ""])
-                selected_sellers = st.multiselect("Продавец", options=seller_options)
-                if selected_sellers:
-                    df_filtered = df_filtered[df_filtered["Продавец"].isin(selected_sellers)]
-
-        with filter_col3:
-            search_text = st.text_input("Поиск по названию товара")
-            if search_text:
+            if "Средняя цена, ₽" in df_filtered.columns and df_filtered["Средняя цена, ₽"].notna().sum() > 0:
+                min_price = float(df_filtered["Средняя цена, ₽"].min())
+                max_price = float(df_filtered["Средняя цена, ₽"].max())
+                price_range = st.slider(
+                    "Диапазон средней цены, ₽",
+                    min_value=min_price,
+                    max_value=max_price,
+                    value=(min_price, max_price),
+                )
                 df_filtered = df_filtered[
-                    df_filtered["Название товара"].astype(str).str.contains(search_text, case=False, na=False)
+                    (df_filtered["Средняя цена, ₽"] >= price_range[0]) &
+                    (df_filtered["Средняя цена, ₽"] <= price_range[1])
                 ]
 
-        # оставляем только строки, где есть данные для выбранных осей
+        with filter_col2:
+            if "Схема работы" in df.columns:
+                scheme_options = sorted(
+                    [x for x in df["Схема работы"].dropna().unique().tolist() if str(x).strip() != ""]
+                )
+                selected_schemes = st.multiselect("Схема работы", options=scheme_options)
+                if selected_schemes:
+                    df_filtered = df_filtered[df_filtered["Схема работы"].isin(selected_schemes)]
+
+        with filter_col3:
+            if "Возраст карточки, мес" in df_filtered.columns and df_filtered["Возраст карточки, мес"].notna().sum() > 0:
+                min_age = float(df_filtered["Возраст карточки, мес"].min())
+                max_age = float(df_filtered["Возраст карточки, мес"].max())
+                age_range = st.slider(
+                    "Возраст карточки, мес",
+                    min_value=min_age,
+                    max_value=max_age,
+                    value=(min_age, max_age),
+                )
+                df_filtered = df_filtered[
+                    (df_filtered["Возраст карточки, мес"] >= age_range[0]) &
+                    (df_filtered["Возраст карточки, мес"] <= age_range[1])
+                ]
+
+        st.subheader("Ограничение выборки")
+
+        ranking_options = numeric_columns.copy()
+        default_rank = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ranking_options else ranking_options[0]
+
+        rank_col1, rank_col2, rank_col3 = st.columns(3)
+
+        with rank_col1:
+            rank_by = st.selectbox(
+                "Ограничивать по метрике",
+                options=ranking_options,
+                index=ranking_options.index(default_rank) if default_rank in ranking_options else 0
+            )
+
+        with rank_col2:
+            top_n = st.selectbox(
+                "Количество точек",
+                options=[10, 20, 35, 100],
+                index=1
+            )
+
+        with rank_col3:
+            label_options = ["Без подписи"]
+            for col in ["Название товара", "Бренд", "Артикул OZON"]:
+                if col in df.columns:
+                    label_options.append(col)
+            if parameter_by != "Без параметра" and parameter_by not in label_options:
+                label_options.append(parameter_by)
+
+            point_label = st.selectbox("Подпись точек", options=label_options)
+
         chart_df = df_filtered.dropna(subset=[x_axis, y_axis, size_axis]).copy()
+
+        if rank_by in chart_df.columns:
+            chart_df = chart_df.sort_values(rank_by, ascending=False).head(top_n)
 
         if len(chart_df) == 0:
             st.warning("После фильтрации не осталось данных для построения графика.")
@@ -152,11 +209,16 @@ if uploaded_file is not None:
                 "Средняя цена, ₽",
                 "Показы всего",
                 "Просмотры карточки",
+                "Возраст карточки, мес",
             ]:
                 if col in chart_df.columns:
                     hover_fields.append(col)
 
-            color_arg = color_by if color_by != "Без цвета" else None
+            color_arg = parameter_by if parameter_by != "Без параметра" else None
+
+            text_column = None
+            if point_label != "Без подписи" and point_label in chart_df.columns:
+                text_column = point_label
 
             fig = px.scatter(
                 chart_df,
@@ -164,18 +226,26 @@ if uploaded_file is not None:
                 y=y_axis,
                 size=size_axis,
                 color=color_arg,
+                text=text_column,
                 hover_name="Название товара" if "Название товара" in chart_df.columns else None,
                 hover_data=hover_fields,
                 size_max=60,
             )
 
+            fig.update_traces(
+                textposition="top center",
+                marker=dict(opacity=0.7)
+            )
+
             fig.update_layout(
-                height=700,
+                height=750,
                 xaxis_title=x_axis,
                 yaxis_title=y_axis,
             )
 
             st.plotly_chart(fig, use_container_width=True)
+
+            st.caption(f"На графике показано {len(chart_df)} точек")
 
         st.subheader("Предпросмотр данных")
         st.dataframe(df_filtered.head(50), use_container_width=True)
