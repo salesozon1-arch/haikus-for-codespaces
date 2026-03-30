@@ -234,12 +234,32 @@ if uploaded_files:
         with info_col3:
             st.write("**Числовых полей:**", len(get_numeric_columns(df)))
 
-        # =========================
+                # =========================
         # ПУЗЫРЬКОВАЯ ДИАГРАММА
         # =========================
         st.header("Пузырьковая диаграмма")
 
-        bubble_filtered_df = apply_common_filters(df, prefix="bubble")
+        # Выбор одной даты для пузырьковой диаграммы
+        bubble_date_filtered_df = df.copy()
+
+        if "Дата отчета" in bubble_date_filtered_df.columns:
+            available_bubble_dates = sorted(
+                [d for d in bubble_date_filtered_df["Дата отчета"].dropna().unique().tolist()]
+            )
+
+            if available_bubble_dates:
+                selected_bubble_date = st.selectbox(
+                    "Дата для пузырьковой диаграммы",
+                    options=available_bubble_dates,
+                    format_func=lambda x: pd.to_datetime(x).strftime("%d.%m.%Y"),
+                    key="bubble_selected_date",
+                )
+
+                bubble_date_filtered_df = bubble_date_filtered_df[
+                    bubble_date_filtered_df["Дата отчета"] == selected_bubble_date
+                ]
+
+        bubble_filtered_df = apply_common_filters(bubble_date_filtered_df, prefix="bubble")
 
         st.subheader("Настройки графика")
 
