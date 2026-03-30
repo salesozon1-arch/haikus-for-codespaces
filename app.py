@@ -1,5 +1,13 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
+
+from metrics_config import (
+    prepare_base_columns,
+    add_calculated_columns,
+    extract_report_date,
+    get_numeric_columns,
+)
+
 
 st.set_page_config(page_title="Ozon Analytics", layout="wide")
 
@@ -12,7 +20,7 @@ def find_header_row(df_raw: pd.DataFrame) -> int:
     raise ValueError("Не удалось найти строку заголовков. Проверь формат файла.")
 
 
-def load_ozon_report(uploaded_file) -> pd.DataFrame:
+def load_ozon_report(uploaded_file):
     file_name = uploaded_file.name.lower()
 
     if file_name.endswith(".csv"):
@@ -22,7 +30,9 @@ def load_ozon_report(uploaded_file) -> pd.DataFrame:
     else:
         raise ValueError("Поддерживаются только CSV и XLSX")
 
+    report_date = extract_report_date(df_raw)
     header_row = find_header_row(df_raw)
+
     uploaded_file.seek(0)
 
     if file_name.endswith(".csv"):
@@ -37,44 +47,8 @@ def load_ozon_report(uploaded_file) -> pd.DataFrame:
         df = df[df["Название товара"].astype(str).str.strip() != "Название товара"]
 
     df = df.reset_index(drop=True)
-    return df
 
-
-def convert_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
-    text_columns = {
-        "Название товара",
-        "Ссылка на товар",
-        "Продавец",
-        "Бренд",
-        "Категория 1 уровня",
-        "Категория 3 уровня",
-        "Признак товара",
-        "Схема работы",
-        "Дата создания карточки товара",
-    }
-
-    df = df.copy()
-
-    for col in df.columns:
-        if col in text_columns:
-            continue
-
-        cleaned = (
-            df[col]
-            .astype(str)
-            .str.replace("\xa0", "", regex=False)
-            .str.replace(" ", "", regex=False)
-            .str.replace(",", ".", regex=False)
-            .str.strip()
-        )
-
-        cleaned = cleaned.replace({"": None, "nan": None, "None": None})
-        converted = pd.to_numeric(cleaned, errors="coerce")
-
-        if converted.notna().sum() > 0:
-            df[col] = converted
-
-    return df
+    return df, report_date
 
 
 st.title("Ozon Analytics")
@@ -83,16 +57,23 @@ uploaded_file = st.file_uploader("Загрузи отчет Ozon", type=["csv", 
 
 if uploaded_file is not None:
     try:
-        df = load_ozon_report(uploaded_file)
-        df = convert_numeric_columns(df)
+        df, report_date = load_ozon_report(uploaded_file)
+        df = prepare_base_columns(df)
+        df = add_calculated_columns(df, report_date=report_date, spp_percent=51.0)
 
         st.success(f"Файл загружен. Строк: {len(df)}, колонок: {len(df.columns)}")
 
-        st.subheader("Колонки")
-        st.write(list(df.columns))
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**Дата отчета:**", report_date)
+        with col2:
+            st.write("**Числовые поля для графиков:**", len(get_numeric_columns(df)))
 
         st.subheader("Предпросмотр данных")
-        st.dataframe(df.head(20), use_container_width=True)
+        st.dataframe(df.head(30), use_container_width=True)
+
+        st.subheader("Список колонок")
+        st.write(list(df.columns))
 
     except Exception as e:
         st.error(f"Ошибка загрузки файла: {e}")
