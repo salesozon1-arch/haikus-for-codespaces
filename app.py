@@ -4,6 +4,7 @@ from plotly.colors import qualitative
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+from ui.tabs.strategy_tab import render_strategy_tab
 
 from metrics_config import (
     prepare_base_columns,
@@ -497,530 +498,563 @@ def build_time_series(df: pd.DataFrame, analysis_level: str, metric: str, aggreg
 
 st.title("Ozon Analytics")
 
-uploaded_files = st.file_uploader(
-    "Загрузи один или несколько отчетов Ozon",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True,
-)
+tab_analytics, tab_strategy = st.tabs(["Аналитика", "Стратегия"])
 
-if uploaded_files:
-    try:
-        df = load_multiple_ozon_reports(uploaded_files)
+with tab_strategy:
+    render_strategy_tab()
 
-        if df.empty:
-            st.warning("Не удалось загрузить данные.")
-            st.stop()
+with tab_analytics:
+    uploaded_files = st.file_uploader(
+        "Загрузи один или несколько отчетов Ozon",
+        type=["csv", "xlsx"],
+        accept_multiple_files=True,
+    )
 
-        date_min = df["Дата отчета"].min() if "Дата отчета" in df.columns else None
-        date_max = df["Дата отчета"].max() if "Дата отчета" in df.columns else None
+    if uploaded_files:
+        try:
+            df = load_multiple_ozon_reports(uploaded_files)
 
-        st.success(
-            f"Файлы загружены. Строк: {len(df)}, колонок: {len(df.columns)}, отчетов: {len(uploaded_files)}"
-        )
+            if df.empty:
+                st.warning("Не удалось загрузить данные.")
+                st.stop()
 
-        info_col1, info_col2, info_col3 = st.columns(3)
-        with info_col1:
-            st.write("**Мин. дата отчета:**", date_min)
-        with info_col2:
-            st.write("**Макс. дата отчета:**", date_max)
-        with info_col3:
-            st.write("**Числовых полей:**", len(get_numeric_columns(df)))
+            date_min = df["Дата отчета"].min() if "Дата отчета" in df.columns else None
+            date_max = df["Дата отчета"].max() if "Дата отчета" in df.columns else None
 
-                # =========================
-        # ПУЗЫРЬКОВАЯ ДИАГРАММА
-        # =========================
-        st.header("Пузырьковая диаграмма")
-
-        # Выбор одной даты для пузырьковой диаграммы
-        bubble_date_filtered_df = df.copy()
-
-        if "Дата отчета" in bubble_date_filtered_df.columns:
-            available_bubble_dates = sorted(
-                [d for d in bubble_date_filtered_df["Дата отчета"].dropna().unique().tolist()]
+            st.success(
+                f"Файлы загружены. Строк: {len(df)}, колонок: {len(df.columns)}, отчетов: {len(uploaded_files)}"
             )
 
-            if available_bubble_dates:
-                selected_bubble_date = st.selectbox(
-                    "Дата для пузырьковой диаграммы",
-                    options=available_bubble_dates,
-                    format_func=lambda x: pd.to_datetime(x).strftime("%d.%m.%Y"),
-                    key="bubble_selected_date",
+            info_col1, info_col2, info_col3 = st.columns(3)
+            with info_col1:
+                st.write("**Мин. дата отчета:**", date_min)
+            with info_col2:
+                st.write("**Макс. дата отчета:**", date_max)
+            with info_col3:
+                st.write("**Числовых полей:**", len(get_numeric_columns(df)))
+
+            # =========================
+            # ПУЗЫРЬКОВАЯ ДИАГРАММА
+            # =========================
+            st.header("Пузырьковая диаграмма")
+
+            bubble_date_filtered_df = df.copy()
+
+            if "Дата отчета" in bubble_date_filtered_df.columns:
+                available_bubble_dates = sorted(
+                    [d for d in bubble_date_filtered_df["Дата отчета"].dropna().unique().tolist()]
                 )
 
-                bubble_date_filtered_df = bubble_date_filtered_df[
-                    bubble_date_filtered_df["Дата отчета"] == selected_bubble_date
-                ]
+                if available_bubble_dates:
+                    selected_bubble_date = st.selectbox(
+                        "Дата для пузырьковой диаграммы",
+                        options=available_bubble_dates,
+                        format_func=lambda x: pd.to_datetime(x).strftime("%d.%m.%Y"),
+                        key="bubble_selected_date",
+                    )
 
-        bubble_filtered_df = apply_common_filters(bubble_date_filtered_df, prefix="bubble")
+                    bubble_date_filtered_df = bubble_date_filtered_df[
+                        bubble_date_filtered_df["Дата отчета"] == selected_bubble_date
+                    ]
 
-        st.subheader("Настройки графика")
+            bubble_filtered_df = apply_common_filters(bubble_date_filtered_df, prefix="bubble")
 
-        analysis_level = st.radio(
-            "Уровень анализа",
-            options=["Товар", "Бренд", "Продавец"],
-            horizontal=True,
-            key="bubble_analysis_level",
-        )
+            st.subheader("Настройки графика")
 
-        df_chart_base = aggregate_for_analysis(bubble_filtered_df, analysis_level, spp_percent=51.0)
-        numeric_columns = get_numeric_columns(df_chart_base)
+            analysis_level = st.radio(
+                "Уровень анализа",
+                options=["Товар", "Бренд", "Продавец"],
+                horizontal=True,
+                key="bubble_analysis_level",
+            )
 
-        if len(numeric_columns) < 3:
-            st.warning("Недостаточно числовых полей для построения пузырьковой диаграммы.")
-        else:
-            default_x = "Показы всего" if "Показы всего" in numeric_columns else numeric_columns[0]
-            default_y = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in numeric_columns else numeric_columns[min(1, len(numeric_columns) - 1)]
-            default_size = "Заказано, штуки" if "Заказано, штуки" in numeric_columns else numeric_columns[min(2, len(numeric_columns) - 1)]
+            df_chart_base = aggregate_for_analysis(bubble_filtered_df, analysis_level, spp_percent=51.0)
+            numeric_columns = get_numeric_columns(df_chart_base)
 
-            parameter_options = ["Без параметра"]
-            for col in [
-                "Бренд",
-                "Продавец",
-                "Категория 1 уровня",
-                "Категория 3 уровня",
-                "Признак товара",
-                "Схема работы",
-                "Группа анализа",
-            ]:
-                if col in df_chart_base.columns and col not in parameter_options:
-                    parameter_options.append(col)
-
-            chart_col1, chart_col2, chart_col3, chart_col4 = st.columns(4)
-
-            with chart_col1:
-                x_axis = st.selectbox(
-                    "Ось X",
-                    options=numeric_columns,
-                    index=numeric_columns.index(default_x) if default_x in numeric_columns else 0,
-                    key="bubble_x",
-                )
-
-            with chart_col2:
-                y_axis = st.selectbox(
-                    "Ось Y",
-                    options=numeric_columns,
-                    index=numeric_columns.index(default_y) if default_y in numeric_columns else 0,
-                    key="bubble_y",
-                )
-
-            with chart_col3:
-                size_axis = st.selectbox(
-                    "Размер пузыря",
-                    options=numeric_columns,
-                    index=numeric_columns.index(default_size) if default_size in numeric_columns else 0,
-                    key="bubble_size",
-                )
-
-            with chart_col4:
-                parameter_by = st.selectbox(
-                    "Параметр",
-                    options=parameter_options,
-                    key="bubble_parameter",
-                )
-
-            st.subheader("Ограничение выборки")
-
-            ranking_options = numeric_columns.copy()
-            default_rank = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ranking_options else ranking_options[0]
-
-            rank_col1, rank_col2, rank_col3 = st.columns(3)
-
-            with rank_col1:
-                rank_by = st.selectbox(
-                    "Ограничивать по метрике",
-                    options=ranking_options,
-                    index=ranking_options.index(default_rank) if default_rank in ranking_options else 0,
-                    key="bubble_rank_by",
-                )
-
-            with rank_col2:
-                top_n = st.selectbox(
-                    "Количество точек",
-                    options=[10, 20, 35, 100],
-                    index=1,
-                    key="bubble_top_n",
-                )
-
-            with rank_col3:
-                label_options = ["Без подписи"]
-                for col in ["Группа анализа", "Название товара", "Бренд", "Продавец", "Артикул OZON"]:
-                    if col in df_chart_base.columns and col not in label_options:
-                        label_options.append(col)
-
-                if (
-                    parameter_by != "Без параметра"
-                    and parameter_by in df_chart_base.columns
-                    and parameter_by not in label_options
-                ):
-                    label_options.append(parameter_by)
-
-                point_label = st.selectbox(
-                    "Подпись точек",
-                    options=label_options,
-                    key="bubble_point_label",
-                )
-
-            chart_df = df_chart_base.dropna(subset=[x_axis, y_axis, size_axis]).copy()
-
-            if rank_by in chart_df.columns:
-                chart_df = chart_df.sort_values(rank_by, ascending=False).head(top_n)
-
-            if len(chart_df) == 0:
-                st.warning("После фильтрации не осталось данных для построения графика.")
+            if len(numeric_columns) < 3:
+                st.warning("Недостаточно числовых полей для построения пузырьковой диаграммы.")
             else:
-                hover_fields = []
+                default_x = "Показы всего" if "Показы всего" in numeric_columns else numeric_columns[0]
+                default_y = (
+                    "Заказано на сумму, ₽"
+                    if "Заказано на сумму, ₽" in numeric_columns
+                    else numeric_columns[min(1, len(numeric_columns) - 1)]
+                )
+                default_size = (
+                    "Заказано, штуки"
+                    if "Заказано, штуки" in numeric_columns
+                    else numeric_columns[min(2, len(numeric_columns) - 1)]
+                )
+
+                parameter_options = ["Без параметра"]
                 for col in [
-                    "Группа анализа",
-                    "Название товара",
                     "Бренд",
                     "Продавец",
-                    "Артикул OZON",
-                    "Количество товаров",
-                    "Количество продавцов",
-                    "Количество брендов",
-                    "Заказано на сумму, ₽",
-                    "Заказано, штуки",
-                    "Средняя цена, ₽",
-                    "Показы всего",
-                    "Просмотры карточки",
-                    "Количество корзин, шт",
-                    "Возраст карточки, мес",
-                    "Заказано на сумму на 1 товар, ₽",
-                    "Показы на 1 товар",
-                    "Заказано, штуки на 1 товар",
-                    "Количество корзин на 1 товар",
-                    "CPM, ₽",
-                    "CPC, ₽",
-                    "CPcart, ₽",
-                    "CPO, ₽",
+                    "Категория 1 уровня",
+                    "Категория 3 уровня",
+                    "Признак товара",
+                    "Схема работы",
+                    "Группа анализа",
                 ]:
-                    if col in chart_df.columns:
-                        hover_fields.append(col)
+                    if col in df_chart_base.columns and col not in parameter_options:
+                        parameter_options.append(col)
 
-                color_arg = parameter_by if parameter_by != "Без параметра" else None
-                text_column = point_label if point_label != "Без подписи" and point_label in chart_df.columns else None
+                chart_col1, chart_col2, chart_col3, chart_col4 = st.columns(4)
 
-                hover_name_col = None
-                if "Группа анализа" in chart_df.columns:
-                    hover_name_col = "Группа анализа"
-                elif "Название товара" in chart_df.columns:
-                    hover_name_col = "Название товара"
-
-                fig = px.scatter(
-                    chart_df,
-                    x=x_axis,
-                    y=y_axis,
-                    size=size_axis,
-                    color=color_arg,
-                    text=text_column,
-                    hover_name=hover_name_col,
-                    hover_data=hover_fields,
-                    size_max=60,
-                )
-
-                fig.update_traces(
-                    textposition="top center",
-                    marker=dict(opacity=0.7)
-                )
-
-                fig.update_layout(
-                    height=750,
-                    xaxis_title=x_axis,
-                    yaxis_title=y_axis,
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-                st.caption(f"На графике показано {len(chart_df)} точек")
-
-        st.subheader("Предпросмотр данных для пузырьковой диаграммы")
-        st.dataframe(df_chart_base.head(50), use_container_width=True)
-
-        # =========================
-        # ВРЕМЕННЫЕ РЯДЫ
-        # =========================
-        st.header("Динамика по времени")
-
-        time_filtered_df = apply_common_filters(df, prefix="timeseries")
-
-        ts_numeric_columns = get_numeric_columns(time_filtered_df)
-
-        if len(ts_numeric_columns) == 0:
-            st.warning("Нет числовых метрик для построения временных рядов.")
-        else:
-            ts_col1, ts_col2, ts_col3, ts_col4, ts_col5 = st.columns(5)
-
-            with ts_col1:
-                ts_analysis_level = st.selectbox(
-                    "Уровень агрегации",
-                    options=["Вся выборка", "Бренд", "Продавец", "Товар"],
-                    index=0,
-                    key="ts_analysis_level",
-                )
-
-            with ts_col2:
-                metrics_count = st.selectbox(
-                    "Количество метрик",
-                    options=[1, 2, 3],
-                    index=0,
-                    key="ts_metrics_count",
-                )
-
-            with ts_col3:
-                ts_aggregation_mode = st.selectbox(
-                    "Режим агрегации",
-                    options=["Сумма", "Среднее", "Медиана"],
-                    index=0,
-                    key="ts_aggregation_mode",
-                )
-
-            default_ts_metric_1 = "Заказано на сумму, ₽" if "Заказано на сумму, ₽" in ts_numeric_columns else ts_numeric_columns[0]
-            default_ts_metric_2 = "Заказано, штуки" if "Заказано, штуки" in ts_numeric_columns else ts_numeric_columns[min(1, len(ts_numeric_columns) - 1)]
-            default_ts_metric_3 = "Показы всего" if "Показы всего" in ts_numeric_columns else ts_numeric_columns[min(2, len(ts_numeric_columns) - 1)]
-
-            with ts_col4:
-                ts_metric_1 = st.selectbox(
-                    "Метрика 1",
-                    options=ts_numeric_columns,
-                    index=ts_numeric_columns.index(default_ts_metric_1) if default_ts_metric_1 in ts_numeric_columns else 0,
-                    key="ts_metric_1",
-                )
-
-            with ts_col5:
-                ts_top_n = st.selectbox(
-                    "Количество линий",
-                    options=[1, 3, 5, 10],
-                    index=1,
-                    key="ts_top_n",
-                )
-
-            extra_metric_cols = st.columns(2)
-            selected_metrics = [ts_metric_1]
-
-            with extra_metric_cols[0]:
-                if metrics_count >= 2:
-                    remaining_for_2 = [m for m in ts_numeric_columns if m != ts_metric_1]
-                    default_index_2 = 0
-                    if default_ts_metric_2 in remaining_for_2:
-                        default_index_2 = remaining_for_2.index(default_ts_metric_2)
-
-                    ts_metric_2 = st.selectbox(
-                        "Метрика 2",
-                        options=remaining_for_2,
-                        index=default_index_2,
-                        key="ts_metric_2",
+                with chart_col1:
+                    x_axis = st.selectbox(
+                        "Ось X",
+                        options=numeric_columns,
+                        index=numeric_columns.index(default_x) if default_x in numeric_columns else 0,
+                        key="bubble_x",
                     )
-                    selected_metrics.append(ts_metric_2)
 
-            with extra_metric_cols[1]:
-                if metrics_count >= 3:
-                    remaining_for_3 = [m for m in ts_numeric_columns if m not in selected_metrics]
-                    default_index_3 = 0
-                    if default_ts_metric_3 in remaining_for_3:
-                        default_index_3 = remaining_for_3.index(default_ts_metric_3)
-
-                    ts_metric_3 = st.selectbox(
-                        "Метрика 3",
-                        options=remaining_for_3,
-                        index=default_index_3,
-                        key="ts_metric_3",
+                with chart_col2:
+                    y_axis = st.selectbox(
+                        "Ось Y",
+                        options=numeric_columns,
+                        index=numeric_columns.index(default_y) if default_y in numeric_columns else 0,
+                        key="bubble_y",
                     )
-                    selected_metrics.append(ts_metric_3)
 
-            adjusted_metrics = []
-            for metric_name in selected_metrics:
-                actual_mode = resolve_aggregation_method(metric_name, ts_aggregation_mode)
-                if actual_mode != ts_aggregation_mode:
-                    adjusted_metrics.append(metric_name)
-
-            if adjusted_metrics:
-                st.info(
-                    "Для процентных метрик режим 'Сумма' автоматически заменен на 'Среднее': "
-                    + ", ".join(adjusted_metrics)
-                )
-
-            all_ts_parts = []
-
-            for metric_name in selected_metrics:
-                ts_part = build_time_series(
-                    time_filtered_df,
-                    ts_analysis_level,
-                    metric_name,
-                    ts_aggregation_mode,
-                )
-
-                if ts_part.empty or metric_name not in ts_part.columns:
-                    continue
-
-                ts_part = ts_part.copy()
-                ts_part["Метрика"] = metric_name
-                ts_part["Значение"] = ts_part[metric_name]
-                all_ts_parts.append(
-                    ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение", "Режим агрегации"]]
-                )
-
-            if not all_ts_parts:
-                st.warning("Недостаточно данных для построения временного ряда.")
-            else:
-                ts_plot_df = pd.concat(all_ts_parts, ignore_index=True)
-
-                if ts_analysis_level == "Вся выборка":
-                    fig_ts = px.line(
-                        ts_plot_df.sort_values("Дата отчета"),
-                        x="Дата отчета",
-                        y="Значение",
-                        color="Метрика",
-                        markers=True,
-                        hover_data=["Метрика", "Режим агрегации"],
+                with chart_col3:
+                    size_axis = st.selectbox(
+                        "Размер пузыря",
+                        options=numeric_columns,
+                        index=numeric_columns.index(default_size) if default_size in numeric_columns else 0,
+                        key="bubble_size",
                     )
+
+                with chart_col4:
+                    parameter_by = st.selectbox(
+                        "Параметр",
+                        options=parameter_options,
+                        key="bubble_parameter",
+                    )
+
+                st.subheader("Ограничение выборки")
+
+                ranking_options = numeric_columns.copy()
+                default_rank = (
+                    "Заказано на сумму, ₽"
+                    if "Заказано на сумму, ₽" in ranking_options
+                    else ranking_options[0]
+                )
+
+                rank_col1, rank_col2, rank_col3 = st.columns(3)
+
+                with rank_col1:
+                    rank_by = st.selectbox(
+                        "Ограничивать по метрике",
+                        options=ranking_options,
+                        index=ranking_options.index(default_rank) if default_rank in ranking_options else 0,
+                        key="bubble_rank_by",
+                    )
+
+                with rank_col2:
+                    top_n = st.selectbox(
+                        "Количество точек",
+                        options=[10, 20, 35, 100],
+                        index=1,
+                        key="bubble_top_n",
+                    )
+
+                with rank_col3:
+                    label_options = ["Без подписи"]
+                    for col in ["Группа анализа", "Название товара", "Бренд", "Продавец", "Артикул OZON"]:
+                        if col in df_chart_base.columns and col not in label_options:
+                            label_options.append(col)
+
+                    if (
+                        parameter_by != "Без параметра"
+                        and parameter_by in df_chart_base.columns
+                        and parameter_by not in label_options
+                    ):
+                        label_options.append(parameter_by)
+
+                    point_label = st.selectbox(
+                        "Подпись точек",
+                        options=label_options,
+                        key="bubble_point_label",
+                    )
+
+                chart_df = df_chart_base.dropna(subset=[x_axis, y_axis, size_axis]).copy()
+
+                if rank_by in chart_df.columns:
+                    chart_df = chart_df.sort_values(rank_by, ascending=False).head(top_n)
+
+                if len(chart_df) == 0:
+                    st.warning("После фильтрации не осталось данных для построения графика.")
                 else:
-                    total_by_group = (
-                        ts_plot_df.groupby("Группа анализа", dropna=False)["Значение"]
-                        .sum()
-                        .reset_index()
-                        .sort_values("Значение", ascending=False)
-                        .head(ts_top_n)
+                    hover_fields = []
+                    for col in [
+                        "Группа анализа",
+                        "Название товара",
+                        "Бренд",
+                        "Продавец",
+                        "Артикул OZON",
+                        "Количество товаров",
+                        "Количество продавцов",
+                        "Количество брендов",
+                        "Заказано на сумму, ₽",
+                        "Заказано, штуки",
+                        "Средняя цена, ₽",
+                        "Показы всего",
+                        "Просмотры карточки",
+                        "Количество корзин, шт",
+                        "Возраст карточки, мес",
+                        "Заказано на сумму на 1 товар, ₽",
+                        "Показы на 1 товар",
+                        "Заказано, штуки на 1 товар",
+                        "Количество корзин на 1 товар",
+                        "CPM, ₽",
+                        "CPC, ₽",
+                        "CPcart, ₽",
+                        "CPO, ₽",
+                    ]:
+                        if col in chart_df.columns:
+                            hover_fields.append(col)
+
+                    color_arg = parameter_by if parameter_by != "Без параметра" else None
+                    text_column = (
+                        point_label
+                        if point_label != "Без подписи" and point_label in chart_df.columns
+                        else None
                     )
 
-                    keep_groups = total_by_group["Группа анализа"].tolist()
-                    ts_plot_df = ts_plot_df[ts_plot_df["Группа анализа"].isin(keep_groups)].copy()
+                    hover_name_col = None
+                    if "Группа анализа" in chart_df.columns:
+                        hover_name_col = "Группа анализа"
+                    elif "Название товара" in chart_df.columns:
+                        hover_name_col = "Название товара"
 
-                    ts_plot_df["Линия"] = (
-                        ts_plot_df["Группа анализа"].astype(str)
-                        + " | "
-                        + ts_plot_df["Метрика"].astype(str)
+                    fig = px.scatter(
+                        chart_df,
+                        x=x_axis,
+                        y=y_axis,
+                        size=size_axis,
+                        color=color_arg,
+                        text=text_column,
+                        hover_name=hover_name_col,
+                        hover_data=hover_fields,
+                        size_max=60,
                     )
 
-                    fig_ts = px.line(
-                        ts_plot_df.sort_values("Дата отчета"),
-                        x="Дата отчета",
-                        y="Значение",
-                        color="Линия",
-                        markers=True,
-                        hover_data=["Группа анализа", "Метрика", "Режим агрегации"],
+                    fig.update_traces(
+                        textposition="top center",
+                        marker=dict(opacity=0.7)
                     )
 
-                fig_ts.update_layout(
-                    height=650,
-                    xaxis_title="Дата отчета",
-                    yaxis_title="Значение",
+                    fig.update_layout(
+                        height=750,
+                        xaxis_title=x_axis,
+                        yaxis_title=y_axis,
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption(f"На графике показано {len(chart_df)} точек")
+
+            st.subheader("Предпросмотр данных для пузырьковой диаграммы")
+            st.dataframe(df_chart_base.head(50), use_container_width=True)
+
+            # =========================
+            # ВРЕМЕННЫЕ РЯДЫ
+            # =========================
+            st.header("Динамика по времени")
+
+            time_filtered_df = apply_common_filters(df, prefix="timeseries")
+
+            ts_numeric_columns = get_numeric_columns(time_filtered_df)
+
+            if len(ts_numeric_columns) == 0:
+                st.warning("Нет числовых метрик для построения временных рядов.")
+            else:
+                ts_col1, ts_col2, ts_col3, ts_col4, ts_col5 = st.columns(5)
+
+                with ts_col1:
+                    ts_analysis_level = st.selectbox(
+                        "Уровень агрегации",
+                        options=["Вся выборка", "Бренд", "Продавец", "Товар"],
+                        index=0,
+                        key="ts_analysis_level",
+                    )
+
+                with ts_col2:
+                    metrics_count = st.selectbox(
+                        "Количество метрик",
+                        options=[1, 2, 3],
+                        index=0,
+                        key="ts_metrics_count",
+                    )
+
+                with ts_col3:
+                    ts_aggregation_mode = st.selectbox(
+                        "Режим агрегации",
+                        options=["Сумма", "Среднее", "Медиана"],
+                        index=0,
+                        key="ts_aggregation_mode",
+                    )
+
+                default_ts_metric_1 = (
+                    "Заказано на сумму, ₽"
+                    if "Заказано на сумму, ₽" in ts_numeric_columns
+                    else ts_numeric_columns[0]
+                )
+                default_ts_metric_2 = (
+                    "Заказано, штуки"
+                    if "Заказано, штуки" in ts_numeric_columns
+                    else ts_numeric_columns[min(1, len(ts_numeric_columns) - 1)]
+                )
+                default_ts_metric_3 = (
+                    "Показы всего"
+                    if "Показы всего" in ts_numeric_columns
+                    else ts_numeric_columns[min(2, len(ts_numeric_columns) - 1)]
                 )
 
-                st.plotly_chart(fig_ts, use_container_width=True)
+                with ts_col4:
+                    ts_metric_1 = st.selectbox(
+                        "Метрика 1",
+                        options=ts_numeric_columns,
+                        index=ts_numeric_columns.index(default_ts_metric_1) if default_ts_metric_1 in ts_numeric_columns else 0,
+                        key="ts_metric_1",
+                    )
 
-                st.subheader("Предпросмотр данных временного ряда")
-                st.dataframe(ts_plot_df.head(100), use_container_width=True)
+                with ts_col5:
+                    ts_top_n = st.selectbox(
+                        "Количество линий",
+                        options=[1, 3, 5, 10],
+                        index=1,
+                        key="ts_top_n",
+                    )
 
-        # =========================
-        # ФИКСИРОВАННЫЙ ДАШБОРД 3x3
-        # =========================
-        st.header("Фиксированный дашборд")
+                extra_metric_cols = st.columns(2)
+                selected_metrics = [ts_metric_1]
 
-        dashboard_filtered_df = apply_dashboard_filters(df)
+                with extra_metric_cols[0]:
+                    if metrics_count >= 2:
+                        remaining_for_2 = [m for m in ts_numeric_columns if m != ts_metric_1]
+                        default_index_2 = 0
+                        if default_ts_metric_2 in remaining_for_2:
+                            default_index_2 = remaining_for_2.index(default_ts_metric_2)
 
-        dash_ctrl1, dash_ctrl2 = st.columns(2)
+                        ts_metric_2 = st.selectbox(
+                            "Метрика 2",
+                            options=remaining_for_2,
+                            index=default_index_2,
+                            key="ts_metric_2",
+                        )
+                        selected_metrics.append(ts_metric_2)
 
-        with dash_ctrl1:
-            dashboard_level = st.selectbox(
-                "Уровень сравнения",
-                options=["Вся выборка", "Бренд", "Продавец"],
-                index=0,
-                key="dashboard_level",
+                with extra_metric_cols[1]:
+                    if metrics_count >= 3:
+                        remaining_for_3 = [m for m in ts_numeric_columns if m not in selected_metrics]
+                        default_index_3 = 0
+                        if default_ts_metric_3 in remaining_for_3:
+                            default_index_3 = remaining_for_3.index(default_ts_metric_3)
+
+                        ts_metric_3 = st.selectbox(
+                            "Метрика 3",
+                            options=remaining_for_3,
+                            index=default_index_3,
+                            key="ts_metric_3",
+                        )
+                        selected_metrics.append(ts_metric_3)
+
+                adjusted_metrics = []
+                for metric_name in selected_metrics:
+                    actual_mode = resolve_aggregation_method(metric_name, ts_aggregation_mode)
+                    if actual_mode != ts_aggregation_mode:
+                        adjusted_metrics.append(metric_name)
+
+                if adjusted_metrics:
+                    st.info(
+                        "Для процентных метрик режим 'Сумма' автоматически заменен на 'Среднее': "
+                        + ", ".join(adjusted_metrics)
+                    )
+
+                all_ts_parts = []
+
+                for metric_name in selected_metrics:
+                    ts_part = build_time_series(
+                        time_filtered_df,
+                        ts_analysis_level,
+                        metric_name,
+                        ts_aggregation_mode,
+                    )
+
+                    if ts_part.empty or metric_name not in ts_part.columns:
+                        continue
+
+                    ts_part = ts_part.copy()
+                    ts_part["Метрика"] = metric_name
+                    ts_part["Значение"] = ts_part[metric_name]
+                    all_ts_parts.append(
+                        ts_part[["Дата отчета", "Группа анализа", "Метрика", "Значение", "Режим агрегации"]]
+                    )
+
+                if not all_ts_parts:
+                    st.warning("Недостаточно данных для построения временного ряда.")
+                else:
+                    ts_plot_df = pd.concat(all_ts_parts, ignore_index=True)
+
+                    if ts_analysis_level == "Вся выборка":
+                        fig_ts = px.line(
+                            ts_plot_df.sort_values("Дата отчета"),
+                            x="Дата отчета",
+                            y="Значение",
+                            color="Метрика",
+                            markers=True,
+                            hover_data=["Метрика", "Режим агрегации"],
+                        )
+                    else:
+                        total_by_group = (
+                            ts_plot_df.groupby("Группа анализа", dropna=False)["Значение"]
+                            .sum()
+                            .reset_index()
+                            .sort_values("Значение", ascending=False)
+                            .head(ts_top_n)
+                        )
+
+                        keep_groups = total_by_group["Группа анализа"].tolist()
+                        ts_plot_df = ts_plot_df[ts_plot_df["Группа анализа"].isin(keep_groups)].copy()
+
+                        ts_plot_df["Линия"] = (
+                            ts_plot_df["Группа анализа"].astype(str)
+                            + " | "
+                            + ts_plot_df["Метрика"].astype(str)
+                        )
+
+                        fig_ts = px.line(
+                            ts_plot_df.sort_values("Дата отчета"),
+                            x="Дата отчета",
+                            y="Значение",
+                            color="Линия",
+                            markers=True,
+                            hover_data=["Группа анализа", "Метрика", "Режим агрегации"],
+                        )
+
+                    fig_ts.update_layout(
+                        height=650,
+                        xaxis_title="Дата отчета",
+                        yaxis_title="Значение",
+                    )
+
+                    st.plotly_chart(fig_ts, use_container_width=True)
+
+                    st.subheader("Предпросмотр данных временного ряда")
+                    st.dataframe(ts_plot_df.head(100), use_container_width=True)
+
+            # =========================
+            # ФИКСИРОВАННЫЙ ДАШБОРД 3x3
+            # =========================
+            st.header("Фиксированный дашборд")
+
+            dashboard_filtered_df = apply_dashboard_filters(df)
+
+            dash_ctrl1, dash_ctrl2 = st.columns(2)
+
+            with dash_ctrl1:
+                dashboard_level = st.selectbox(
+                    "Уровень сравнения",
+                    options=["Вся выборка", "Бренд", "Продавец"],
+                    index=0,
+                    key="dashboard_level",
+                )
+
+            compare_values = []
+            group_col = get_dashboard_group_col(dashboard_level)
+
+            with dash_ctrl2:
+                if group_col is not None and group_col in dashboard_filtered_df.columns:
+                    compare_options = sorted(
+                        [x for x in dashboard_filtered_df[group_col].dropna().unique().tolist() if str(x).strip() != ""]
+                    )
+                    compare_values = st.multiselect(
+                        f"Сравнить значения ({group_col})",
+                        options=compare_options,
+                        key="dashboard_compare_values",
+                    )
+
+            dashboard_base_df = build_dashboard_base_timeseries(
+                dashboard_filtered_df,
+                level=dashboard_level,
+                selected_values=compare_values,
             )
 
-        compare_values = []
-        group_col = get_dashboard_group_col(dashboard_level)
+            panel_specs = [
+                {
+                    "title": "1. Заказы до СПП",
+                    "metrics": [
+                        {"metric": "Заказы до СПП, ₽", "label": "Заказы до СПП, ₽", "axis": "left"},
+                    ],
+                },
+                {
+                    "title": "2. Средняя и медианная цена",
+                    "metrics": [
+                        {"metric": "Средняя цена, ₽", "label": "Средняя цена, ₽", "axis": "left"},
+                        {"metric": "Медианная цена, ₽", "label": "Медианная цена, ₽", "axis": "left"},
+                    ],
+                },
+                {
+                    "title": "3. Заказы, штуки",
+                    "metrics": [
+                        {"metric": "Заказано, штуки", "label": "Заказано, штуки", "axis": "left"},
+                        {"metric": "Среднесуточные продажи, штуки", "label": "Среднесуточные продажи, штуки", "axis": "left"},
+                    ],
+                },
+                {
+                    "title": "4. Показы и доля поиска",
+                    "metrics": [
+                        {"metric": "Показы всего", "label": "Показы всего", "axis": "left"},
+                        {"metric": "Просмотры в поиске и каталоге", "label": "Показы из поиска и каталога", "axis": "left"},
+                        {"metric": "Доля поиска, %", "label": "Доля поиска, %", "axis": "right"},
+                    ],
+                },
+                {
+                    "title": "5. CTR и посещения карточки",
+                    "metrics": [
+                        {"metric": "Просмотры карточки", "label": "Посещения карточки", "axis": "left"},
+                        {"metric": "CTR, %", "label": "CTR, %", "axis": "right"},
+                    ],
+                },
+                {
+                    "title": "6. Конверсии",
+                    "metrics": [
+                        {"metric": "CR в корзину, %", "label": "CR в корзину, %", "axis": "left"},
+                        {"metric": "CR корзина -> заказ, %", "label": "CR корзина → заказ, %", "axis": "left"},
+                        {"metric": "CR из показа в заказ, %", "label": "CR из показа в заказ, %", "axis": "left"},
+                    ],
+                },
+                {
+                    "title": "7. Рекламный бюджет и ДРР",
+                    "metrics": [
+                        {"metric": "Рекламные расходы, сумма", "label": "Рекламный бюджет, ₽", "axis": "left"},
+                        {"metric": "ДРР, %", "label": "ДРР, %", "axis": "right"},
+                    ],
+                },
+                {
+                    "title": "8. CPC и CPM",
+                    "metrics": [
+                        {"metric": "CPC, ₽", "label": "CPC, ₽", "axis": "left"},
+                        {"metric": "CPM, ₽", "label": "CPM, ₽", "axis": "left"},
+                    ],
+                },
+                {
+                    "title": "9. CPcart и CPO",
+                    "metrics": [
+                        {"metric": "CPcart, ₽", "label": "CPcart, ₽", "axis": "left"},
+                        {"metric": "CPO, ₽", "label": "CPO, ₽", "axis": "left"},
+                    ],
+                },
+            ]
 
-        with dash_ctrl2:
-            if group_col is not None and group_col in dashboard_filtered_df.columns:
-                compare_options = sorted(
-                    [x for x in dashboard_filtered_df[group_col].dropna().unique().tolist() if str(x).strip() != ""]
-                )
-                compare_values = st.multiselect(
-                    f"Сравнить значения ({group_col})",
-                    options=compare_options,
-                    key="dashboard_compare_values",
-                )
+            for row_start in range(0, len(panel_specs), 3):
+                row_panels = panel_specs[row_start:row_start + 3]
+                cols = st.columns(3)
 
-        dashboard_base_df = build_dashboard_base_timeseries(
-            dashboard_filtered_df,
-            level=dashboard_level,
-            selected_values=compare_values,
-        )
-
-        panel_specs = [
-            {
-                "title": "1. Заказы до СПП",
-                "metrics": [
-                    {"metric": "Заказы до СПП, ₽", "label": "Заказы до СПП, ₽", "axis": "left"},
-                ],
-            },
-            {
-                "title": "2. Средняя и медианная цена",
-                "metrics": [
-                    {"metric": "Средняя цена, ₽", "label": "Средняя цена, ₽", "axis": "left"},
-                    {"metric": "Медианная цена, ₽", "label": "Медианная цена, ₽", "axis": "left"},
-                ],
-            },
-            {
-                "title": "3. Заказы, штуки",
-                "metrics": [
-                    {"metric": "Заказано, штуки", "label": "Заказано, штуки", "axis": "left"},
-                    {"metric": "Среднесуточные продажи, штуки", "label": "Среднесуточные продажи, штуки", "axis": "left"},
-                ],
-            },
-            {
-                "title": "4. Показы и доля поиска",
-                "metrics": [
-                    {"metric": "Показы всего", "label": "Показы всего", "axis": "left"},
-                    {"metric": "Просмотры в поиске и каталоге", "label": "Показы из поиска и каталога", "axis": "left"},
-                    {"metric": "Доля поиска, %", "label": "Доля поиска, %", "axis": "right"},
-                ],
-            },
-            {
-                "title": "5. CTR и посещения карточки",
-                "metrics": [
-                    {"metric": "Просмотры карточки", "label": "Посещения карточки", "axis": "left"},
-                    {"metric": "CTR, %", "label": "CTR, %", "axis": "right"},
-                ],
-            },
-            {
-                "title": "6. Конверсии",
-                "metrics": [
-                    {"metric": "CR в корзину, %", "label": "CR в корзину, %", "axis": "left"},
-                    {"metric": "CR корзина -> заказ, %", "label": "CR корзина → заказ, %", "axis": "left"},
-                    {"metric": "CR из показа в заказ, %", "label": "CR из показа в заказ, %", "axis": "left"},
-                ],
-            },
-            {
-                "title": "7. Рекламный бюджет и ДРР",
-                "metrics": [
-                    {"metric": "Рекламные расходы, сумма", "label": "Рекламный бюджет, ₽", "axis": "left"},
-                    {"metric": "ДРР, %", "label": "ДРР, %", "axis": "right"},
-                ],
-            },
-            {
-                "title": "8. CPC и CPM",
-                "metrics": [
-                    {"metric": "CPC, ₽", "label": "CPC, ₽", "axis": "left"},
-                    {"metric": "CPM, ₽", "label": "CPM, ₽", "axis": "left"},
-                ],
-            },
-            {
-                "title": "9. CPcart и CPO",
-                "metrics": [
-                    {"metric": "CPcart, ₽", "label": "CPcart, ₽", "axis": "left"},
-                    {"metric": "CPO, ₽", "label": "CPO, ₽", "axis": "left"},
-                ],
-            },
-        ]
-
-        for row_start in range(0, len(panel_specs), 3):
-            row_panels = panel_specs[row_start:row_start + 3]
-            cols = st.columns(3)
-
-            for col, panel in zip(cols, row_panels):
-                with col:
-                    panel_df = make_panel_series(dashboard_base_df, panel["metrics"])
-                    plot_dashboard_panel(panel_df, panel["title"])
-    except Exception as e:
-        st.error(f"Ошибка загрузки файла: {e}")
+                for col, panel in zip(cols, row_panels):
+                    with col:
+                        panel_df = make_panel_series(dashboard_base_df, panel["metrics"])
+                        plot_dashboard_panel(panel_df, panel["title"])
+        except Exception as e:
+            st.error(f"Ошибка загрузки файла: {e}")
