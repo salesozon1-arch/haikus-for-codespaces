@@ -3,10 +3,6 @@ import plotly.express as px
 import streamlit as st
 
 
-# =========================
-# УТИЛИТЫ
-# =========================
-
 def _safe_divide(a, b):
     if b in (0, 0.0, None):
         return 0.0
@@ -31,10 +27,6 @@ def _format_delta_pct(forecast_value: float, plan_value: float, digits: int = 1)
     delta = ((forecast_value / plan_value) - 1) * 100
     return f"{delta:+.{digits}f}%"
 
-
-# =========================
-# РАСЧЕТЫ
-# =========================
 
 def _calculate_strategy_metrics(
     market_share_pct,
@@ -93,10 +85,6 @@ def _calculate_strategy_metrics(
     }
 
 
-# =========================
-# КОНКУРЕНТЫ
-# =========================
-
 def _default_competitors():
     df = pd.DataFrame(
         [
@@ -111,21 +99,13 @@ def _default_competitors():
     df["Показы всего"] = pd.to_numeric(df["Показы всего"], errors="coerce").astype(float)
     df["CR, %"] = pd.to_numeric(df["CR, %"], errors="coerce").astype(float)
     df["Выручка, ₽"] = pd.to_numeric(df["Выручка, ₽"], errors="coerce").astype(float)
-
     return df
 
-# =========================
-# ОСНОВНОЙ РЕНДЕР
-# =========================
 
 def render_strategy_tab():
     st.header("Стратегия роста")
 
     left_col, right_col = st.columns([0.38, 0.62], vertical_alignment="top")
-
-    # =========================
-    # ЛЕВАЯ КОЛОНКА
-    # =========================
 
     with left_col:
         st.subheader("Входные параметры")
@@ -158,10 +138,6 @@ def render_strategy_tab():
             revenue_plan,
         )
 
-        # =========================
-        # БЛОК 1
-        # =========================
-
         st.markdown("---")
         st.subheader("Что нужно обеспечить")
 
@@ -172,65 +148,77 @@ def render_strategy_tab():
             st.metric("Заказы", _format_number(metrics["orders"]))
             st.metric("Выручка / SKU", _format_money(metrics["revenue_per_sku"]))
             st.metric("Заказы / SKU", _format_number(metrics["orders_per_sku"]))
+            st.metric("Выручка / день", _format_money(metrics["revenue_per_day"]))
+            st.metric("Заказы / день", _format_number(metrics["orders_per_day"], 1))
 
         with m2:
             st.metric("Показы", _format_number(metrics["total_impressions"]))
+            st.metric("Показы / SKU", _format_number(metrics["impressions_per_sku"]))
             st.metric("Реклама", _format_money(metrics["ad_spend"]))
-            st.metric("ДРР прогноз", _format_percent(metrics["drr_forecast_pct"]))
             st.metric("РБ / день", _format_money(metrics["daily_ad_budget"]))
-
-        # =========================
-        # БЛОК 2
-        # =========================
+            st.metric("Недельный РБ / SKU", _format_money(metrics["weekly_ad_budget_per_sku"]))
+            st.metric("ДРР прогноз", _format_percent(metrics["drr_forecast_pct"]))
 
         st.markdown("---")
         st.subheader("Сравнение с планом")
 
-        c1, c2, c3 = st.columns(3)
+        p1, p2, p3 = st.columns(3)
 
-        with c1:
+        with p1:
             st.metric("План выручки", _format_money(revenue_plan))
             st.metric("План рентабельности", _format_percent(profitability_plan_pct))
             st.metric("План прибыль", _format_money(metrics["net_profit_plan"]))
+            st.metric("Заказы план", _format_number(orders_plan))
 
-        with c2:
+        with p2:
             st.metric("Прогноз выручки", _format_money(metrics["revenue"]))
             st.metric("Прогноз рентабельности", _format_percent(metrics["profitability_forecast_pct"]))
             st.metric("Прогноз прибыль", _format_money(metrics["net_profit_forecast"]))
 
-        with c3:
+        with p3:
             st.metric("Δ выручки", _format_delta_pct(metrics["revenue"], revenue_plan))
             st.metric("Δ рентабельности", _format_delta_pct(metrics["profitability_forecast_pct"], profitability_plan_pct))
             st.metric("Δ прибыли", _format_delta_pct(metrics["net_profit_forecast"], metrics["net_profit_plan"]))
 
-    # =========================
-    # ПРАВАЯ КОЛОНКА
-    # =========================
-
-    
     with right_col:
         if "competitors" not in st.session_state:
             st.session_state["competitors"] = _default_competitors()
 
-        raw_df = st.session_state["competitors"].copy()
+        editor_df = st.session_state["competitors"].copy()
 
+        if "Бренд" not in editor_df.columns:
+            editor_df["Бренд"] = ""
+        if "Показы всего" not in editor_df.columns:
+            editor_df["Показы всего"] = None
+        if "CR, %" not in editor_df.columns:
+            editor_df["CR, %"] = None
+        if "Выручка, ₽" not in editor_df.columns:
+            editor_df["Выручка, ₽"] = None
+
+        editor_df["Бренд"] = editor_df["Бренд"].fillna("").astype(str)
+        editor_df["Показы всего"] = pd.to_numeric(editor_df["Показы всего"], errors="coerce")
+        editor_df["CR, %"] = pd.to_numeric(editor_df["CR, %"], errors="coerce")
+        editor_df["Выручка, ₽"] = pd.to_numeric(editor_df["Выручка, ₽"], errors="coerce")
+
+        raw_df = editor_df.copy()
         raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
-
-        for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
-            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
 
         competitors_df = raw_df.dropna(subset=["Показы всего", "CR, %", "Выручка, ₽"]).copy()
         competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
-        competitors_df = competitors_df[competitors_df["Показы всего"] > 0]
-        competitors_df = competitors_df[competitors_df["CR, %"] > 0]
-        competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0]
+        competitors_df = competitors_df[competitors_df["Показы всего"] > 0].copy()
+        competitors_df = competitors_df[competitors_df["CR, %"] > 0].copy()
+        competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0].copy()
 
-        model_df = pd.DataFrame([{
-        "Бренд": "Грани Света",
-        "Показы всего": float(metrics["total_impressions"]),
-        "CR, %": float(metrics["cr_pct"]),
-        "Выручка, ₽": float(metrics["revenue"]),
-        }])
+        model_df = pd.DataFrame(
+            [
+                {
+                    "Бренд": "Грани Света",
+                    "Показы всего": float(metrics["total_impressions"]),
+                    "CR, %": float(metrics["cr_pct"]),
+                    "Выручка, ₽": float(metrics["revenue"]),
+                }
+            ]
+        )
 
         chart_df = pd.concat([competitors_df, model_df], ignore_index=True)
 
@@ -244,57 +232,38 @@ def render_strategy_tab():
                 text="Бренд",
                 size_max=70,
             )
-
             fig.update_traces(textposition="top center")
             fig.update_layout(height=550)
-
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Добавь хотя бы одного конкурента с заполненными данными")
 
-           editor_df = st.session_state["competitors"].copy()
+        edited = st.data_editor(
+            editor_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="comp_editor",
+            column_config={
+                "Бренд": st.column_config.TextColumn("Бренд"),
+                "Показы всего": st.column_config.NumberColumn(
+                    "Показы всего",
+                    min_value=0.0,
+                    step=1000.0,
+                    format="%.0f",
+                ),
+                "CR, %": st.column_config.NumberColumn(
+                    "CR, %",
+                    min_value=0.0,
+                    step=0.005,
+                    format="%.3f",
+                ),
+                "Выручка, ₽": st.column_config.NumberColumn(
+                    "Выручка, ₽",
+                    min_value=0.0,
+                    step=100000.0,
+                    format="%.0f",
+                ),
+            },
+        )
 
-    if "Бренд" not in editor_df.columns:
-        editor_df["Бренд"] = ""
-    if "Показы всего" not in editor_df.columns:
-        editor_df["Показы всего"] = None
-    if "CR, %" not in editor_df.columns:
-        editor_df["CR, %"] = None
-    if "Выручка, ₽" not in editor_df.columns:
-        editor_df["Выручка, ₽"] = None
-
-    editor_df["Бренд"] = editor_df["Бренд"].astype(str)
-    editor_df["Показы всего"] = pd.to_numeric(editor_df["Показы всего"], errors="coerce")
-    editor_df["CR, %"] = pd.to_numeric(editor_df["CR, %"], errors="coerce")
-    editor_df["Выручка, ₽"] = pd.to_numeric(editor_df["Выручка, ₽"], errors="coerce")
-
-    edited = st.data_editor(
-        editor_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="comp_editor",
-        column_config={
-            "Бренд": st.column_config.TextColumn("Бренд"),
-            "Показы всего": st.column_config.NumberColumn(
-                "Показы всего",
-                min_value=0.0,
-                step=1000.0,
-                format="%.0f",
-            ),
-            "CR, %": st.column_config.NumberColumn(
-                "CR, %",
-                min_value=0.0,
-                step=0.005,
-                format="%.3f",
-            ),
-            "Выручка, ₽": st.column_config.NumberColumn(
-                "Выручка, ₽",
-                min_value=0.0,
-                step=100000.0,
-                format="%.0f",
-            ),
-        },
-    )
-
-    st.session_state["competitors"] = edited.copy()
-
+        st.session_state["competitors"] = edited.copy()
