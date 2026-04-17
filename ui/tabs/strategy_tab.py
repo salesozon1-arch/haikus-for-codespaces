@@ -180,30 +180,59 @@ def render_strategy_tab():
             st.metric("Δ рентабельности", _format_delta_pct(metrics["profitability_forecast_pct"], profitability_plan_pct))
             st.metric("Δ прибыли", _format_delta_pct(metrics["net_profit_forecast"], metrics["net_profit_plan"]))
 
-    with right_col:
+        with right_col:
         if "competitors" not in st.session_state:
             st.session_state["competitors"] = _default_competitors()
 
-        editor_df = st.session_state["competitors"].copy()
+        base_df = st.session_state["competitors"].copy()
 
-        if "Бренд" not in editor_df.columns:
-            editor_df["Бренд"] = ""
-        if "Показы всего" not in editor_df.columns:
-            editor_df["Показы всего"] = None
-        if "CR, %" not in editor_df.columns:
-            editor_df["CR, %"] = None
-        if "Выручка, ₽" not in editor_df.columns:
-            editor_df["Выручка, ₽"] = None
+        if "Бренд" not in base_df.columns:
+            base_df["Бренд"] = ""
+        if "Показы всего" not in base_df.columns:
+            base_df["Показы всего"] = None
+        if "CR, %" not in base_df.columns:
+            base_df["CR, %"] = None
+        if "Выручка, ₽" not in base_df.columns:
+            base_df["Выручка, ₽"] = None
 
-        editor_df["Бренд"] = editor_df["Бренд"].fillna("").astype(str)
-        editor_df["Показы всего"] = pd.to_numeric(editor_df["Показы всего"], errors="coerce")
-        editor_df["CR, %"] = pd.to_numeric(editor_df["CR, %"], errors="coerce")
-        editor_df["Выручка, ₽"] = pd.to_numeric(editor_df["Выручка, ₽"], errors="coerce")
+        edited = st.data_editor(
+            base_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="comp_editor",
+            column_config={
+                "Бренд": st.column_config.TextColumn("Бренд"),
+                "Показы всего": st.column_config.NumberColumn(
+                    "Показы всего",
+                    min_value=0.0,
+                    step=1000.0,
+                    format="%.0f",
+                ),
+                "CR, %": st.column_config.NumberColumn(
+                    "CR, %",
+                    min_value=0.0,
+                    step=0.005,
+                    format="%.3f",
+                ),
+                "Выручка, ₽": st.column_config.NumberColumn(
+                    "Выручка, ₽",
+                    min_value=0.0,
+                    step=100000.0,
+                    format="%.0f",
+                ),
+            },
+        )
 
-        raw_df = editor_df.copy()
+        st.session_state["competitors"] = edited.copy()
+
+        raw_df = edited.copy()
+
         raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
 
-        competitors_df = raw_df.dropna(subset=["Показы всего", "CR, %", "Выручка, ₽"]).copy()
+        for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
+            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
+
+        competitors_df = raw_df.dropna(subset=["Бренд", "Показы всего", "CR, %", "Выручка, ₽"]).copy()
         competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
         competitors_df = competitors_df[competitors_df["Показы всего"] > 0].copy()
         competitors_df = competitors_df[competitors_df["CR, %"] > 0].copy()
@@ -236,34 +265,4 @@ def render_strategy_tab():
             fig.update_layout(height=550)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Добавь хотя бы одного конкурента с заполненными данными")
-
-        edited = st.data_editor(
-            editor_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="comp_editor",
-            column_config={
-                "Бренд": st.column_config.TextColumn("Бренд"),
-                "Показы всего": st.column_config.NumberColumn(
-                    "Показы всего",
-                    min_value=0.0,
-                    step=1000.0,
-                    format="%.0f",
-                ),
-                "CR, %": st.column_config.NumberColumn(
-                    "CR, %",
-                    min_value=0.0,
-                    step=0.005,
-                    format="%.3f",
-                ),
-                "Выручка, ₽": st.column_config.NumberColumn(
-                    "Выручка, ₽",
-                    min_value=0.0,
-                    step=100000.0,
-                    format="%.0f",
-                ),
-            },
-        )
-
-        st.session_state["competitors"] = edited.copy()
+            st.info("Заполни хотя бы одну строку конкурента: бренд, показы, CR и выручку.")
