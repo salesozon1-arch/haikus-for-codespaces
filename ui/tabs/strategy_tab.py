@@ -201,56 +201,56 @@ def render_strategy_tab():
     # ПРАВАЯ КОЛОНКА
     # =========================
 
+    
     with right_col:
-       with right_col:
-    if "competitors" not in st.session_state:
-        st.session_state["competitors"] = _default_competitors()
+        if "competitors" not in st.session_state:
+            st.session_state["competitors"] = _default_competitors()
 
-    raw_df = st.session_state["competitors"].copy()
+        raw_df = st.session_state["competitors"].copy()
 
-    raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
+        raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
 
-    for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
-        raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
+        for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
+            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
 
-    competitors_df = raw_df.dropna(subset=["Показы всего", "CR, %", "Выручка, ₽"]).copy()
-    competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
-    competitors_df = competitors_df[competitors_df["Показы всего"] > 0]
-    competitors_df = competitors_df[competitors_df["CR, %"] > 0]
-    competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0]
+        competitors_df = raw_df.dropna(subset=["Показы всего", "CR, %", "Выручка, ₽"]).copy()
+        competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
+        competitors_df = competitors_df[competitors_df["Показы всего"] > 0]
+        competitors_df = competitors_df[competitors_df["CR, %"] > 0]
+        competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0]
 
-    model_df = pd.DataFrame([{
+        model_df = pd.DataFrame([{
         "Бренд": "Грани Света",
         "Показы всего": float(metrics["total_impressions"]),
         "CR, %": float(metrics["cr_pct"]),
         "Выручка, ₽": float(metrics["revenue"]),
-    }])
+        }])
 
-    chart_df = pd.concat([competitors_df, model_df], ignore_index=True)
+        chart_df = pd.concat([competitors_df, model_df], ignore_index=True)
 
-    if len(chart_df) > 0:
-        fig = px.scatter(
-            chart_df,
-            x="Показы всего",
-            y="CR, %",
-            size="Выручка, ₽",
-            color="Бренд",
-            text="Бренд",
-            size_max=70,
+        if len(chart_df) > 0:
+            fig = px.scatter(
+                chart_df,
+                x="Показы всего",
+                y="CR, %",
+                size="Выручка, ₽",
+                color="Бренд",
+                text="Бренд",
+                size_max=70,
+            )
+
+            fig.update_traces(textposition="top center")
+            fig.update_layout(height=550)
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Добавь хотя бы одного конкурента с заполненными данными")
+
+        edited = st.data_editor(
+            st.session_state["competitors"],
+            num_rows="dynamic",
+            use_container_width=True,
+            key="comp_editor"
         )
 
-        fig.update_traces(textposition="top center")
-        fig.update_layout(height=550)
-
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Добавь хотя бы одного конкурента с заполненными данными")
-
-    edited = st.data_editor(
-        st.session_state["competitors"],
-        num_rows="dynamic",
-        use_container_width=True,
-        key="comp_editor"
-    )
-
-    st.session_state["competitors"] = edited
+        st.session_state["competitors"] = edited
