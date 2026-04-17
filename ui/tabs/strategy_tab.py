@@ -181,66 +181,66 @@ def render_strategy_tab():
             st.metric("Δ прибыли", _format_delta_pct(metrics["net_profit_forecast"], metrics["net_profit_plan"]))
 
         with right_col:
-        if "competitors" not in st.session_state:
-            st.session_state["competitors"] = _default_competitors()
+            if "competitors" not in st.session_state:
+                st.session_state["competitors"] = _default_competitors()
 
-        base_df = st.session_state["competitors"].copy()
+            base_df = st.session_state["competitors"].copy()
 
-        if "Бренд" not in base_df.columns:
-            base_df["Бренд"] = ""
-        if "Показы всего" not in base_df.columns:
-            base_df["Показы всего"] = None
-        if "CR, %" not in base_df.columns:
-            base_df["CR, %"] = None
-        if "Выручка, ₽" not in base_df.columns:
-            base_df["Выручка, ₽"] = None
+            if "Бренд" not in base_df.columns:
+                base_df["Бренд"] = ""
+            if "Показы всего" not in base_df.columns:
+                base_df["Показы всего"] = None
+            if "CR, %" not in base_df.columns:
+                base_df["CR, %"] = None
+            if "Выручка, ₽" not in base_df.columns:
+                base_df["Выручка, ₽"] = None
 
-        edited = st.data_editor(
-            base_df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key="comp_editor",
-            column_config={
-                "Бренд": st.column_config.TextColumn("Бренд"),
-                "Показы всего": st.column_config.NumberColumn(
-                    "Показы всего",
-                    min_value=0.0,
-                    step=1000.0,
-                    format="%.0f",
-                ),
-                "CR, %": st.column_config.NumberColumn(
-                    "CR, %",
-                    min_value=0.0,
-                    step=0.005,
-                    format="%.3f",
-                ),
-                "Выручка, ₽": st.column_config.NumberColumn(
-                    "Выручка, ₽",
-                    min_value=0.0,
-                    step=100000.0,
-                    format="%.0f",
-                ),
-            },
-        )
+            edited = st.data_editor(
+                base_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="comp_editor",
+                column_config={
+                    "Бренд": st.column_config.TextColumn("Бренд"),
+                    "Показы всего": st.column_config.NumberColumn(
+                        "Показы всего",
+                        min_value=0.0,
+                        step=1000.0,
+                        format="%.0f",
+                    ),
+                    "CR, %": st.column_config.NumberColumn(
+                        "CR, %",
+                        min_value=0.0,
+                        step=0.005,
+                        format="%.3f",
+                    ),
+                    "Выручка, ₽": st.column_config.NumberColumn(
+                        "Выручка, ₽",
+                        min_value=0.0,
+                        step=100000.0,
+                        format="%.0f",
+                    ),
+                },
+            )
 
-        st.session_state["competitors"] = edited.copy()
+            st.session_state["competitors"] = edited.copy()
 
-        raw_df = edited.copy()
+            raw_df = edited.copy()
 
-        raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
+            raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
 
-        for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
-            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
+            for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
+                raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
 
-        competitors_df = raw_df.dropna(subset=["Бренд", "Показы всего", "CR, %", "Выручка, ₽"]).copy()
-        competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
-        competitors_df = competitors_df[competitors_df["Показы всего"] > 0].copy()
-        competitors_df = competitors_df[competitors_df["CR, %"] > 0].copy()
-        competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0].copy()
+            competitors_df = raw_df.dropna(subset=["Бренд", "Показы всего", "CR, %", "Выручка, ₽"]).copy()
+            competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
+            competitors_df = competitors_df[competitors_df["Показы всего"] > 0].copy()
+            competitors_df = competitors_df[competitors_df["CR, %"] > 0].copy()
+            competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0].copy()
 
-        model_df = pd.DataFrame(
-            [
-                {
+            model_df = pd.DataFrame(
+                [
+                    {
                     "Бренд": "Грани Света",
                     "Показы всего": float(metrics["total_impressions"]),
                     "CR, %": float(metrics["cr_pct"]),
