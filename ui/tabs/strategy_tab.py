@@ -98,15 +98,21 @@ def _calculate_strategy_metrics(
 # =========================
 
 def _default_competitors():
-    return pd.DataFrame(
+    df = pd.DataFrame(
         [
-            {"Бренд": "Ritter", "Показы всего": 5_500_000, "CR, %": 0.095, "Выручка, ₽": 42_000_000},
-            {"Бренд": "Rosso Sole", "Показы всего": 2_300_000, "CR, %": 0.115, "Выручка, ₽": 16_000_000},
-            {"Бренд": "Ledcity", "Показы всего": 1_800_000, "CR, %": 0.135, "Выручка, ₽": 14_500_000},
-            {"Бренд": "Cassina", "Показы всего": 4_100_000, "CR, %": 0.072, "Выручка, ₽": 27_000_000},
+            {"Бренд": "Ritter", "Показы всего": 5_500_000.0, "CR, %": 0.095, "Выручка, ₽": 42_000_000.0},
+            {"Бренд": "Rosso Sole", "Показы всего": 2_300_000.0, "CR, %": 0.115, "Выручка, ₽": 16_000_000.0},
+            {"Бренд": "Ledcity", "Показы всего": 1_800_000.0, "CR, %": 0.135, "Выручка, ₽": 14_500_000.0},
+            {"Бренд": "Cassina", "Показы всего": 4_100_000.0, "CR, %": 0.072, "Выручка, ₽": 27_000_000.0},
         ]
     )
 
+    df["Бренд"] = df["Бренд"].astype(str)
+    df["Показы всего"] = pd.to_numeric(df["Показы всего"], errors="coerce").astype(float)
+    df["CR, %"] = pd.to_numeric(df["CR, %"], errors="coerce").astype(float)
+    df["Выручка, ₽"] = pd.to_numeric(df["Выручка, ₽"], errors="coerce").astype(float)
+
+    return df
 
 # =========================
 # ОСНОВНОЙ РЕНДЕР
@@ -246,11 +252,49 @@ def render_strategy_tab():
         else:
             st.info("Добавь хотя бы одного конкурента с заполненными данными")
 
-        edited = st.data_editor(
-            st.session_state["competitors"],
-            num_rows="dynamic",
-            use_container_width=True,
-            key="comp_editor"
-        )
+           editor_df = st.session_state["competitors"].copy()
 
-        st.session_state["competitors"] = edited
+    if "Бренд" not in editor_df.columns:
+        editor_df["Бренд"] = ""
+    if "Показы всего" not in editor_df.columns:
+        editor_df["Показы всего"] = None
+    if "CR, %" not in editor_df.columns:
+        editor_df["CR, %"] = None
+    if "Выручка, ₽" not in editor_df.columns:
+        editor_df["Выручка, ₽"] = None
+
+    editor_df["Бренд"] = editor_df["Бренд"].astype(str)
+    editor_df["Показы всего"] = pd.to_numeric(editor_df["Показы всего"], errors="coerce")
+    editor_df["CR, %"] = pd.to_numeric(editor_df["CR, %"], errors="coerce")
+    editor_df["Выручка, ₽"] = pd.to_numeric(editor_df["Выручка, ₽"], errors="coerce")
+
+    edited = st.data_editor(
+        editor_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="comp_editor",
+        column_config={
+            "Бренд": st.column_config.TextColumn("Бренд"),
+            "Показы всего": st.column_config.NumberColumn(
+                "Показы всего",
+                min_value=0.0,
+                step=1000.0,
+                format="%.0f",
+            ),
+            "CR, %": st.column_config.NumberColumn(
+                "CR, %",
+                min_value=0.0,
+                step=0.005,
+                format="%.3f",
+            ),
+            "Выручка, ₽": st.column_config.NumberColumn(
+                "Выручка, ₽",
+                min_value=0.0,
+                step=100000.0,
+                format="%.0f",
+            ),
+        },
+    )
+
+    st.session_state["competitors"] = edited.copy()
+
