@@ -205,27 +205,59 @@ def render_strategy_tab():
         if "competitors" not in st.session_state:
             st.session_state["competitors"] = _default_competitors()
 
-        df = st.session_state["competitors"]
+                raw_df = st.session_state["competitors"].copy()
 
-        # график
-        model = pd.DataFrame([{
-            "Бренд": "Грани Света",
-            "Показы всего": metrics["total_impressions"],
-            "CR, %": metrics["cr_pct"],
-            "Выручка, ₽": metrics["revenue"],
-        }])
+        if "Бренд" not in raw_df.columns:
+            raw_df["Бренд"] = ""
+        if "Показы всего" not in raw_df.columns:
+            raw_df["Показы всего"] = None
+        if "CR, %" not in raw_df.columns:
+            raw_df["CR, %"] = None
+        if "Выручка, ₽" not in raw_df.columns:
+            raw_df["Выручка, ₽"] = None
 
-        chart_df = pd.concat([df, model], ignore_index=True)
+        # чистим текстовые поля
+        raw_df["Бренд"] = raw_df["Бренд"].fillna("").astype(str).str.strip()
 
-        fig = px.scatter(
-            chart_df,
-            x="Показы всего",
-            y="CR, %",
-            size="Выручка, ₽",
-            color="Бренд",
-            text="Бренд",
-            size_max=70,
-        )
+        # приводим числовые колонки
+        for col in ["Показы всего", "CR, %", "Выручка, ₽"]:
+            raw_df[col] = pd.to_numeric(raw_df[col], errors="coerce")
+
+        # убираем незаполненные и некорректные строки
+        competitors_df = raw_df.dropna(subset=["Показы всего", "CR, %", "Выручка, ₽"]).copy()
+        competitors_df = competitors_df[competitors_df["Бренд"] != ""].copy()
+        competitors_df = competitors_df[competitors_df["Показы всего"] > 0].copy()
+        competitors_df = competitors_df[competitors_df["CR, %"] > 0].copy()
+        competitors_df = competitors_df[competitors_df["Выручка, ₽"] > 0].copy()
+
+        model_df = pd.DataFrame([
+            {
+                "Бренд": "Грани Света",
+                "Показы всего": float(metrics["total_impressions"]),
+                "CR, %": float(metrics["cr_pct"]),
+                "Выручка, ₽": float(metrics["revenue"]),
+            }
+        ])
+
+        chart_df = pd.concat([competitors_df, model_df], ignore_index=True)
+
+        if len(chart_df) > 0:
+            fig = px.scatter(
+                chart_df,
+                x="Показы всего",
+                y="CR, %",
+                size="Выручка, ₽",
+                color="Бренд",
+                text="Бренд",
+                size_max=70,
+            )
+
+            fig.update_traces(textposition="top center")
+            fig.update_layout(height=550)
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Для построения графика добавь хотя бы одного конкурента с заполненными значениями.")
 
         fig.update_traces(textposition="top center")
         fig.update_layout(height=550)
