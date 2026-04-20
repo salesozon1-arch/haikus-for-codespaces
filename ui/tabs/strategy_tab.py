@@ -798,32 +798,14 @@ def render_strategy_tab():
     if "strategy_sku_forecast" not in st.session_state:
         st.session_state["strategy_sku_forecast"] = _default_sku_forecast()
 
-    # ---------- Блок 1 ----------
+        # ---------- Блок 1 ----------
     st.subheader("Присутствие в ценовых сегментах")
 
-    seg_left, seg_right = st.columns([0.62, 0.38], vertical_alignment="top")
-
-    with seg_left:
-        base_segments_df = st.session_state["strategy_price_segments"].copy()
-
-        segments_edited = st.data_editor(
-            base_segments_df,
-            use_container_width=True,
-            num_rows="dynamic",
-            key="segments_editor",
-            column_config={
-                "Ценовой сегмент": st.column_config.TextColumn("Ценовой сегмент"),
-                "Наши продажи": st.column_config.NumberColumn("Наши продажи", min_value=0.0, step=10000.0, format="%.0f"),
-                "Общие продажи": st.column_config.NumberColumn("Общие продажи", min_value=0.0, step=10000.0, format="%.0f"),
-                "Целевая доля, %": st.column_config.NumberColumn("Целевая доля, %", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
-            },
-        )
-
-        st.session_state["strategy_price_segments"] = segments_edited.copy()
+    base_segments_df = st.session_state["strategy_price_segments"].copy()
 
     # подготовка sku блока до сегментов, чтобы агрегат уже был готов
     current_segments_labels = (
-        segments_edited["Ценовой сегмент"]
+        base_segments_df["Ценовой сегмент"]
         .fillna("")
         .astype(str)
         .tolist()
@@ -836,10 +818,71 @@ def render_strategy_tab():
         segment_labels=current_segments_labels,
     )
 
-    segments_result_df = _build_segments_result_table(segments_edited.copy(), sku_calc_df)
+    segments_result_df = _build_segments_result_table(base_segments_df.copy(), sku_calc_df)
+
+    segments_editor_df = segments_result_df[
+        [
+            "Ценовой сегмент",
+            "Наши продажи",
+            "Общие продажи",
+            "Наша доля, %",
+            "Доля сегмента, %",
+            "Целевая доля, %",
+            "Недополученные продажи",
+            "Потенциальная выручка план",
+            "Доля, которую мы сможем занять, %",
+            "Потенциальная выручка прогноз",
+        ]
+    ].copy()
+
+    seg_left, seg_right = st.columns([0.50, 0.50], vertical_alignment="top")
+
+    with seg_left:
+        segments_edited = st.data_editor(
+            segments_editor_df,
+            use_container_width=True,
+            num_rows="dynamic",
+            height=680,
+            key="segments_editor",
+            column_config={
+                "Ценовой сегмент": st.column_config.TextColumn("Ценовой сегмент", width="medium"),
+                "Наши продажи": st.column_config.NumberColumn("Наши продажи", min_value=0.0, step=10000.0, format="%.0f"),
+                "Общие продажи": st.column_config.NumberColumn("Общие продажи", min_value=0.0, step=10000.0, format="%.0f"),
+                "Наша доля, %": st.column_config.NumberColumn("Наша доля, %", format="%.2f", disabled=True),
+                "Доля сегмента, %": st.column_config.NumberColumn("Доля сегмента, %", format="%.2f", disabled=True),
+                "Целевая доля, %": st.column_config.NumberColumn("Целевая доля, %", min_value=0.0, max_value=100.0, step=0.5, format="%.2f"),
+                "Недополученные продажи": st.column_config.NumberColumn("Недополученные продажи", format="%.0f", disabled=True),
+                "Потенциальная выручка план": st.column_config.NumberColumn("Потенциальная выручка план", format="%.0f", disabled=True),
+                "Доля, которую мы сможем занять, %": st.column_config.NumberColumn("Прогнозная доля, %", format="%.2f", disabled=True),
+                "Потенциальная выручка прогноз": st.column_config.NumberColumn("Потенциальная выручка прогноз", format="%.0f", disabled=True),
+            },
+            column_order=[
+                "Ценовой сегмент",
+                "Наши продажи",
+                "Общие продажи",
+                "Наша доля, %",
+                "Доля сегмента, %",
+                "Целевая доля, %",
+                "Недополученные продажи",
+                "Потенциальная выручка план",
+                "Доля, которую мы сможем занять, %",
+                "Потенциальная выручка прогноз",
+            ],
+        )
+
+        # сохраняем только редактируемую базу обратно в state
+        st.session_state["strategy_price_segments"] = segments_edited[
+            ["Ценовой сегмент", "Наши продажи", "Общие продажи", "Целевая доля, %"]
+        ].copy()
+
+    # после редактирования пересчитываем
+    recalculated_segments_df = _build_segments_result_table(
+        st.session_state["strategy_price_segments"].copy(),
+        sku_calc_df,
+    )
 
     with seg_right:
-        chart_long = segments_result_df.melt(
+        chart_long = recalculated_segments_df.melt(
             id_vars=["Ценовой сегмент"],
             value_vars=["Наши продажи", "Потенциальная выручка план", "Потенциальная выручка прогноз"],
             var_name="Показатель",
@@ -853,34 +896,22 @@ def render_strategy_tab():
             color="Показатель",
             barmode="group",
         )
+
         fig_segments.update_layout(
-            height=560,
-            margin=dict(l=10, r=10, t=10, b=10),
+            height=720,
+            margin=dict(l=10, r=10, t=20, b=40),
             xaxis_title="Ценовой сегмент",
             yaxis_title="Выручка, ₽",
             legend_title="Срез",
         )
-        fig_segments.update_xaxes(tickangle=-45)
-        st.plotly_chart(fig_segments, use_container_width=True)
 
-    st.dataframe(
-        segments_result_df[
-            [
-                "Ценовой сегмент",
-                "Наши продажи",
-                "Общие продажи",
-                "Наша доля, %",
-                "Доля сегмента, %",
-                "Целевая доля, %",
-                "Недополученные продажи",
-                "Потенциальная выручка план",
-                "Доля, которую мы сможем занять, %",
-                "Потенциальная выручка прогноз",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
+        fig_segments.update_xaxes(
+            tickangle=-45,
+            showgrid=False,
+        )
+        fig_segments.update_yaxes(showgrid=True)
+
+        st.plotly_chart(fig_segments, use_container_width=True)
 
     # ---------- Блок 2 ----------
     st.subheader("Поартикульный прогноз")
