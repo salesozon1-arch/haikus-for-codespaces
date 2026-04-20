@@ -913,16 +913,20 @@ def render_strategy_tab():
 
         st.plotly_chart(fig_segments, use_container_width=True)
 
-    # ---------- Блок 2 ----------
+        # ---------- Блок 2 ----------
     st.subheader("Поартикульный прогноз")
     st.markdown(
         '<div class="strategy-block-subtitle">Ценовой сегмент определяется автоматически на основе среднего чека.</div>',
         unsafe_allow_html=True,
     )
 
-    sku_display_df = sku_calc_df.copy()
+    if "strategy_sku_forecast" in st.session_state:
+        base_sku_df = st.session_state["strategy_sku_forecast"].copy()
+    else:
+        base_sku_df = _default_sku_forecast()
 
-    editable_cols = [
+    # на всякий случай обеспечиваем колонки
+    required_sku_cols = [
         "Артикул",
         "Показы",
         "CR, %",
@@ -932,55 +936,132 @@ def render_strategy_tab():
         "Факт: CR, %",
         "Факт: средний чек, ₽",
     ]
+    for col in required_sku_cols:
+        if col not in base_sku_df.columns:
+            base_sku_df[col] = None
 
-    if "strategy_sku_forecast" in st.session_state:
-        base_sku_df = st.session_state["strategy_sku_forecast"].copy()
-    else:
-        base_sku_df = _default_sku_forecast()
-
-    sku_edited = st.data_editor(
-        base_sku_df,
-        use_container_width=True,
-        num_rows="dynamic",
-        key="sku_forecast_editor",
-        column_config={
-            "Артикул": st.column_config.TextColumn("Артикул"),
-            "Показы": st.column_config.NumberColumn("Показы", min_value=0.0, step=100.0, format="%.0f"),
-            "CR, %": st.column_config.NumberColumn("CR, %", min_value=0.0, step=0.01, format="%.3f"),
-            "Средний чек, ₽": st.column_config.NumberColumn("Средний чек, ₽", min_value=0.0, step=100.0, format="%.0f"),
-            "Рентабельность, %": st.column_config.NumberColumn("Рентабельность, %", step=0.1, format="%.2f"),
-            "Факт: показы": st.column_config.NumberColumn("Факт: показы", min_value=0.0, step=100.0, format="%.0f"),
-            "Факт: CR, %": st.column_config.NumberColumn("Факт: CR, %", min_value=0.0, step=0.01, format="%.3f"),
-            "Факт: средний чек, ₽": st.column_config.NumberColumn("Факт: средний чек, ₽", min_value=0.0, step=100.0, format="%.0f"),
-        },
+    current_segments_labels = (
+        st.session_state["strategy_price_segments"]["Ценовой сегмент"]
+        .fillna("")
+        .astype(str)
+        .tolist()
     )
 
-    st.session_state["strategy_sku_forecast"] = sku_edited.copy()
-
     sku_calc_df = _calculate_sku_forecast_table(
-        sku_edited.copy(),
+        base_sku_df.copy(),
         impressions_per_ruble=impressions_per_ruble,
         segment_labels=current_segments_labels,
     )
 
-    st.dataframe(
-        sku_calc_df[
-            [
-                "Артикул",
-                "Ценовой сегмент",
-                "Показы",
-                "CR, %",
-                "Заказы, шт",
-                "Средний чек, ₽",
-                "Заказано, сумма",
-                "Рентабельность, %",
-                "Чистая прибыль",
-                "Бюджет, месяц",
-                "РБ неделя",
-                "РБ день",
-                "ДРР, %",
-            ]
-        ],
+    sku_editor_df = sku_calc_df[
+        [
+            "Артикул",
+            "Ценовой сегмент",
+            "Показы",
+            "CR, %",
+            "Заказы, шт",
+            "Средний чек, ₽",
+            "Заказано, сумма",
+            "Рентабельность, %",
+            "Чистая прибыль",
+            "Бюджет, месяц",
+            "РБ неделя",
+            "РБ день",
+            "ДРР, %",
+            "Факт: показы",
+            "Факт: CR, %",
+            "Факт: средний чек, ₽",
+        ]
+    ].copy()
+
+    sku_edited = st.data_editor(
+        sku_editor_df,
         use_container_width=True,
-        hide_index=True,
+        num_rows="dynamic",
+        height=720,
+        key="sku_forecast_editor",
+        column_config={
+            "Артикул": st.column_config.TextColumn("Артикул"),
+            "Ценовой сегмент": st.column_config.TextColumn("Ценовой сегмент", disabled=True),
+            "Показы": st.column_config.NumberColumn("Показы", min_value=0.0, step=100.0, format="%.0f"),
+            "CR, %": st.column_config.NumberColumn("CR, %", min_value=0.0, step=0.01, format="%.3f"),
+            "Заказы, шт": st.column_config.NumberColumn("Заказы, шт", format="%.1f", disabled=True),
+            "Средний чек, ₽": st.column_config.NumberColumn("Средний чек, ₽", min_value=0.0, step=100.0, format="%.0f"),
+            "Заказано, сумма": st.column_config.NumberColumn("Заказано, сумма", format="%.0f", disabled=True),
+            "Рентабельность, %": st.column_config.NumberColumn("Рентабельность, %", step=0.1, format="%.2f"),
+            "Чистая прибыль": st.column_config.NumberColumn("Чистая прибыль", format="%.0f", disabled=True),
+            "Бюджет, месяц": st.column_config.NumberColumn("Бюджет, месяц", format="%.0f", disabled=True),
+            "РБ неделя": st.column_config.NumberColumn("РБ неделя", format="%.0f", disabled=True),
+            "РБ день": st.column_config.NumberColumn("РБ день", format="%.0f", disabled=True),
+            "ДРР, %": st.column_config.NumberColumn("ДРР, %", format="%.2f", disabled=True),
+            "Факт: показы": st.column_config.NumberColumn("Факт: показы", min_value=0.0, step=100.0, format="%.0f"),
+            "Факт: CR, %": st.column_config.NumberColumn("Факт: CR, %", min_value=0.0, step=0.01, format="%.3f"),
+            "Факт: средний чек, ₽": st.column_config.NumberColumn("Факт: средний чек, ₽", min_value=0.0, step=100.0, format="%.0f"),
+        },
+        column_order=[
+            "Артикул",
+            "Ценовой сегмент",
+            "Показы",
+            "CR, %",
+            "Заказы, шт",
+            "Средний чек, ₽",
+            "Заказано, сумма",
+            "Рентабельность, %",
+            "Чистая прибыль",
+            "Бюджет, месяц",
+            "РБ неделя",
+            "РБ день",
+            "ДРР, %",
+            "Факт: показы",
+            "Факт: CR, %",
+            "Факт: средний чек, ₽",
+        ],
     )
+
+    # сохраняем обратно только редактируемые колонки
+    st.session_state["strategy_sku_forecast"] = sku_edited[
+        [
+            "Артикул",
+            "Показы",
+            "CR, %",
+            "Средний чек, ₽",
+            "Рентабельность, %",
+            "Факт: показы",
+            "Факт: CR, %",
+            "Факт: средний чек, ₽",
+        ]
+    ].copy()
+
+    # финальный пересчет после редактирования
+    sku_calc_df = _calculate_sku_forecast_table(
+        st.session_state["strategy_sku_forecast"].copy(),
+        impressions_per_ruble=impressions_per_ruble,
+        segment_labels=current_segments_labels,
+    )
+
+    # компактная сводка под таблицей
+    sku_summary_col1, sku_summary_col2, sku_summary_col3, sku_summary_col4 = st.columns(4)
+
+    with sku_summary_col1:
+        _render_small_kpi(
+            "Прогнозная выручка",
+            _format_money(pd.to_numeric(sku_calc_df["Заказано, сумма"], errors="coerce").fillna(0).sum()),
+        )
+
+    with sku_summary_col2:
+        _render_small_kpi(
+            "Прогнозная прибыль",
+            _format_money(pd.to_numeric(sku_calc_df["Чистая прибыль"], errors="coerce").fillna(0).sum()),
+        )
+
+    with sku_summary_col3:
+        _render_small_kpi(
+            "Прогнозный бюджет",
+            _format_money(pd.to_numeric(sku_calc_df["Бюджет, месяц"], errors="coerce").fillna(0).sum()),
+        )
+
+    with sku_summary_col4:
+        total_budget = pd.to_numeric(sku_calc_df["Бюджет, месяц"], errors="coerce").fillna(0).sum()
+        total_revenue = pd.to_numeric(sku_calc_df["Заказано, сумма"], errors="coerce").fillna(0).sum()
+        total_drr = _safe_divide(total_budget, total_revenue) * 100
+        _render_small_kpi("Сводный ДРР", _format_percent(total_drr))
